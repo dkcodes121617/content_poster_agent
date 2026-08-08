@@ -1,0 +1,284 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   WizCodes social slides — brand system
+   ═══════════════════════════════════════════════════════════════════════════
+   Values copied verbatim from wizcodes_next/src/app/globals.css :root.
+
+   SYNC RULE: when the site's tokens change, change them here too. A social
+   image in last year's blue is worse than no image — it reads as a third-party
+   tool posting on your behalf, which is exactly the impression this whole
+   system exists to avoid. Everything below is a copy on purpose: the render
+   runs on Modal with no access to the site repo's CSS at image time.
+
+   Fonts are loaded from ../assets as local files. No network at render time —
+   a scheduled post must never fail because Google Fonts was slow.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('../assets/GoogleSansFlex-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('../assets/GoogleSansFlex-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Google Sans Code';
+  src: url('../assets/GoogleSansCode-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  /* Surfaces */
+  --page-bg: #F6F9FB;
+  --surface: #FFFFFF;
+  --surface-raised: #EEF3F7;
+  --surface-navy: #000205;
+  --surface-navy-soft: #0A0D12;
+
+  /* Ink */
+  --text-primary: #15233A;
+  --text-secondary: #545E6B;
+  --text-muted: #667080;
+  --text-on-navy: #EAF4FA;
+  --text-on-navy-muted: #8FA0B5;
+
+  /* Brand blue */
+  --baby-blue: #8ECAE6;
+  --baby-blue-wash: #E4F2F9;
+  --blue: #2E90C4;
+  --blue-strong: #1E7AAB;
+  --on-baby-blue: #0B2138;
+
+  /* Wordmark two-tone */
+  --brand-wiz: #000205;
+  --brand-codes: #2E90C4;
+  --brand-wiz-on-dark: #8ECAE6;
+  --brand-codes-on-dark: #CDEBF7;
+
+  /* Gradients — fill on dark bands, clipped text on light */
+  --gradient-fill: linear-gradient(135deg, #8ECAE6, #219EBC);
+  --gradient-text: linear-gradient(135deg, #2E90C4, #1E7AAB);
+
+  /* Category marks — small identity only, never structural */
+  --cat-web: #2E90C4;
+  --cat-mobile: #0E9C9C;
+  --cat-ai: #8B3FD9;
+
+  --shadow-mockup: 0 30px 60px rgba(11,17,32,0.35), 0 60px 100px rgba(11,17,32,0.20);
+  --shadow-card-soft: 0 1px 2px rgba(20,35,58,0.03), 0 10px 30px rgba(20,35,58,0.05);
+  --radius-card: 18px;
+  --radius-pill: 100px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  font-family: 'Google Sans Flex', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+/* ── The canvas ──
+   Size comes from the renderer as --w / --h so one template serves every
+   aspect ratio. Slides are composed at their true pixel size and captured at
+   deviceScaleFactor 2, which is what keeps type crisp on a phone screen. */
+.slide {
+  width: var(--w);
+  height: var(--h);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: calc(var(--w) * 0.085);
+  background: var(--page-bg);
+  color: var(--text-primary);
+}
+
+/* Dark variant — the site's navy band. Used for cover and CTA slides so a
+   carousel opens and closes dark and reads light in the middle. */
+.slide[data-theme="dark"] {
+  background: var(--surface-navy);
+  color: var(--text-on-navy);
+}
+
+/* ── Atmosphere ──
+   The same two devices the site's hero uses: a radial wash from the top and a
+   fine dot grid masked to fade out. Subtle on purpose — they should register
+   as depth, not as decoration. */
+.slide::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 80% at 50% -15%, var(--baby-blue-wash), transparent 70%);
+  pointer-events: none;
+}
+.slide[data-theme="dark"]::before {
+  background: radial-gradient(120% 80% at 50% -15%, rgba(142,202,230,0.16), transparent 70%);
+}
+.slide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--baby-blue) 1.5px, transparent 1.5px);
+  background-size: calc(var(--w) * 0.035) calc(var(--w) * 0.035);
+  opacity: 0.22;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 55%);
+  mask-image: linear-gradient(to bottom, #000, transparent 55%);
+  pointer-events: none;
+}
+.slide[data-theme="dark"]::after { opacity: 0.10; }
+
+.layer { position: relative; z-index: 1; }
+
+/* Vertical composition. The middle layer takes the slack, so the kicker stays
+   pinned top and the wordmark stays pinned bottom on every slide — that fixed
+   frame is what makes a carousel read as one piece. Cover and CTA sit low, the
+   way the site's hero does; content slides sit optically centred. */
+#main { flex: 1; display: flex; flex-direction: column; }
+.slide[data-role="cover"] #main,
+.slide[data-role="cta"]   #main { justify-content: flex-end; padding-bottom: calc(var(--h) * 0.06); }
+.slide[data-role="metric"] #main { justify-content: center; }
+.slide[data-role="statement"] #main,
+.slide[data-role="quote"] #main { justify-content: center; }
+/* Centred, not top-aligned: a 3-step slide top-aligned leaves a third of the
+   canvas empty, which reads as a template with a slot nobody filled. */
+.slide[data-role="steps"] #main,
+.slide[data-role="mockup"] #main { justify-content: center; }
+
+/* ── Type scale, in viewport-relative units so one stylesheet serves 1080×1350
+   and 1600×900 without a second set of numbers. ── */
+.kicker {
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--w) * 0.026);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue);
+  margin-bottom: calc(var(--w) * 0.035);
+}
+.slide[data-theme="dark"] .kicker { color: var(--baby-blue); }
+
+h1 {
+  font-weight: 600;
+  font-size: calc(var(--w) * 0.092);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+h2 {
+  font-weight: 600;
+  font-size: calc(var(--w) * 0.062);
+  line-height: 1.12;
+  letter-spacing: -0.022em;
+}
+p.body {
+  font-size: calc(var(--w) * 0.036);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  max-width: 88%;
+  margin-top: calc(var(--w) * 0.03);
+}
+.slide[data-theme="dark"] p.body { color: var(--text-on-navy-muted); }
+
+/* Clipped-gradient accent — the site's signature headline treatment. */
+.grad {
+  background: var(--gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.slide[data-theme="dark"] .grad {
+  background: var(--gradient-fill);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* ── The metric slide: one number, enormous. ── */
+.metric {
+  font-weight: 600;
+  font-size: calc(var(--w) * 0.20);
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+}
+.metric-label {
+  font-size: calc(var(--w) * 0.034);
+  color: var(--text-secondary);
+  margin-top: calc(var(--w) * 0.02);
+}
+.slide[data-theme="dark"] .metric-label { color: var(--text-on-navy-muted); }
+
+/* ── Steps / list slides ── */
+.steps { display: flex; flex-direction: column; gap: calc(var(--w) * 0.028); margin-top: calc(var(--w) * 0.05); }
+.step {
+  display: flex;
+  gap: calc(var(--w) * 0.028);
+  align-items: flex-start;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: calc(var(--w) * 0.033);
+  box-shadow: var(--shadow-card-soft);
+}
+.slide[data-theme="dark"] .step {
+  background: rgba(255,255,255,0.05);
+  box-shadow: none;
+  border: 1px solid rgba(142,202,230,0.14);
+}
+.step-n {
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--w) * 0.030);
+  color: var(--blue);
+  flex-shrink: 0;
+  padding-top: calc(var(--w) * 0.004);
+}
+.slide[data-theme="dark"] .step-n { color: var(--baby-blue); }
+.step-t { font-size: calc(var(--w) * 0.034); font-weight: 600; line-height: 1.3; }
+.step-d { font-size: calc(var(--w) * 0.028); color: var(--text-muted); margin-top: calc(var(--w) * 0.008); line-height: 1.4; }
+.slide[data-theme="dark"] .step-d { color: var(--text-on-navy-muted); }
+
+/* ── Device mockup, using the site's own shadow ── */
+.mockup {
+  border-radius: calc(var(--w) * 0.014);
+  overflow: hidden;
+  box-shadow: var(--shadow-mockup);
+  background: var(--surface);
+  margin-top: calc(var(--w) * 0.045);
+}
+.mockup-bar {
+  height: calc(var(--w) * 0.032);
+  background: var(--surface-raised);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--w) * 0.008);
+  padding: 0 calc(var(--w) * 0.014);
+}
+.dot { width: calc(var(--w) * 0.009); height: calc(var(--w) * 0.009); border-radius: 50%; }
+
+/* ── Footer: the wordmark, in the site's two-tone treatment, same place every
+   slide. This is the consistency that makes a small studio look established. ── */
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: calc(var(--w) * 0.026);
+}
+.wordmark { font-weight: 600; letter-spacing: -0.01em; }
+.wordmark .wiz { color: var(--brand-wiz); }
+.wordmark .codes { color: var(--brand-codes); }
+.slide[data-theme="dark"] .wordmark .wiz { color: var(--brand-wiz-on-dark); }
+.slide[data-theme="dark"] .wordmark .codes { color: var(--brand-codes-on-dark); }
+.foot .idx { font-family: 'Google Sans Code', monospace; color: var(--text-muted); }
+.slide[data-theme="dark"] .foot .idx { color: var(--text-on-navy-muted); }
+
+.pill {
+  display: inline-block;
+  padding: calc(var(--w) * 0.014) calc(var(--w) * 0.032);
+  border-radius: var(--radius-pill);
+  background: var(--gradient-fill);
+  color: var(--on-baby-blue);
+  font-weight: 600;
+  font-size: calc(var(--w) * 0.030);
+}

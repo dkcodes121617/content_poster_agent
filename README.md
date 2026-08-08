@@ -1,0 +1,112 @@
+# Content Poster
+
+Writes and publishes WizCodes' social content across six platforms, renders its
+own images in a real browser, and reacts to trending news. Runs on Modal hourly;
+the calendar inside decides what is actually due.
+
+There is **no approval gate**. The agent drafts, validates and publishes on its
+own — `DRY_RUN=1` is the kill switch. What replaces a human clicking approve is
+a four-gate validator stack, because a gate someone clicks through in two
+seconds was never really quality control, and a gate that refuses to publish an
+invented statistic is.
+
+---
+
+## Setup
+
+```powershell
+python -m venv .venv                                   # Python 3.11
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e ..\wizcore
+.\.venv\Scripts\python.exe -m playwright install chromium
+copy .env.example .env                                 # then fill it in
+```
+
+Never edit `.env` by hand in PowerShell — it mangles the encoding. Use:
+
+```powershell
+python tools/set_env.py KEY=VALUE
+```
+
+## Check it works
+
+```powershell
+python tools/preflight.py --live     # ends with: content_poster_agent: ready.
+python tools/render.py --demo        # renders a real 5-slide carousel
+```
+
+A platform that is not in `PLATFORMS_ENABLED` reports `WARN`, not `FAIL` — a
+stale credential for a platform you are not using must not block a deploy.
+
+## Run
+
+```powershell
+python main.py --schedule                        # print the weekly rhythm
+python main.py --dry-run                         # publish whatever is due now
+python main.py --dry-run --force threads:pov:text   # ignore the calendar
+python tools/showcase.py                         # review set -> output/showcase_*/index.html
+python main.py --trends status                   # the trend funnel
+python main.py --syndicate                       # newest blog post -> dev.to
+```
+
+`tools/showcase.py` is the one to reach for when judging output. It runs the
+**real** pipeline — same prompts, same validators, same renderer — and writes
+every post plus its images to one folder with an `index.html`. It is how the
+image bugs in `CONTENT_SYSTEM.md` §1 were found.
+
+## Deploy
+
+```powershell
+.\deploy.ps1              # preflight -> migrations -> secret -> deploy
+.\deploy.ps1 -DryRun      # print the plan, touch nothing
+```
+
+Scheduled functions: hourly post · hourly trend harvest · twice-daily trend
+refine · twice-daily dev.to syndication · weekly token rotation.
+
+## Tokens rotate themselves
+
+Instagram, Threads and Pinterest expire and all three are refreshable
+indefinitely. A weekly cron rotates them into `core.agent_credentials`, and
+every agent reads the database first, falling back to the environment.
+
+This exists because a Modal container **cannot write its own secret** — the
+refresh used to work and then evaporate when the container exited. Nobody
+should ever re-authorise these by hand.
+
+Pinterest needs one manual OAuth first (dashboard test tokens last 24h and
+cannot be refreshed):
+
+```powershell
+python tools/pinterest_auth.py            # one time
+python tools/pinterest_auth.py --boards   # list/create a board, set the id
+python tools/pinterest_auth.py --refresh  # refresh + persist locally
+```
+
+## Configuration that matters
+
+| Variable | Why |
+|---|---|
+| `DRY_RUN` | The kill switch. Renders images, publishes nothing. |
+| `PLATFORMS_ENABLED` | `facebook,threads,instagram,devto,x,pinterest`. Adding one is an env edit, not a code change. |
+| `TRENDS_ENABLED` | Timely content on/off. |
+| `TREND_MIN_RELEVANCE` | Raise it and the agent posts less but better. Rejecting is the normal outcome. |
+| `LLM_PROVIDER` | `proxy` sends every LLM call through the Claude proxy. |
+| `REPETITION_THRESHOLD` | How similar a draft may be to the last 60 posts. |
+
+## Docs
+
+- `CAMPAIGN.md` — voice rules, pillars, the weekly calendar, the validator stack
+- `TRENDS.md` — the trend layer: sources, gates, safety, grounding
+- `CONTENT_SYSTEM.md` — the visual system, variety engine, geo targeting, ramp
+
+## Layout
+
+```
+campaign/    calendar · pillar mix · dev.to syndication · promoted assets
+platforms/   one file per platform + manual hand-off + token rotation
+validators/  grounding · voice · repetition · platform
+trends/      harvest · score · verify · angle · safety
+imaging/     slide rendering + R2 upload
+templates/   slide.html + brand.css (the site's tokens, copied verbatim)
+```

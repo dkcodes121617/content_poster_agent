@@ -1,0 +1,79 @@
+# ── WizCodes Content Poster (Agent 3) — dependencies ──
+# Runtime: Python 3.11. Deployed on Modal. ONE requirements file: local dev,
+# CI and the Modal image all install exactly this, so "works on my machine"
+# and "works in the container" cannot diverge.
+
+# ── Shared library ──
+# `wizcore` holds the ClaudeStore proxy client (the CLI User-Agent Cloudflare
+# demands, the injection-guard phrasing rules, the retry shape), the site facts
+# snapshot, the DB layer and Telegram. During build-out it is the sibling
+# folder, installed editable so a fix lands in every agent at once:
+#     pip install -e ../wizcore
+# The Modal image picks it up with .add_local_python_source("wizcore").
+# Once it stabilises, promote it to a pinned git dependency and uncomment:
+# wizcore @ git+https://github.com/dkcodes121617/wizcore@v0.1.0
+
+# ── LangGraph ──
+# This agent genuinely earns the graph, unlike the case study agent: the
+# approval interrupt() must survive the container exiting, and that requires a
+# real checkpointer. Everything else here is close to a straight line, but that
+# one node is the whole reason the agent is safe to run unattended.
+# Pinned to the 1.x major, verified installed: langgraph 1.2.10.
+# The upper bound is the point — a scheduled agent nobody is watching must not
+# wake up one morning on a new major. In 1.x the production knobs live in
+# `langgraph.types`: RetryPolicy, CachePolicy, TimeoutPolicy, Durability,
+# interrupt, Command. (RetryPolicy is NOT in langgraph.pregel any more.)
+langgraph>=1.2,<2
+langchain-core>=0.3.30
+# Separate distribution from langgraph — supplies langgraph.checkpoint.postgres.
+# Omitting it is the classic "interrupt() raises at compile time" mistake.
+# Verified installed: 3.1.1.
+langgraph-checkpoint-postgres>=3.1,<4
+psycopg[binary,pool]>=3.2.0
+
+# ── HTTP ──
+# Meta Graph, Threads, LinkedIn and Telegram are all plain REST. requests keeps
+# us consistent with the two live agents and gives full header control.
+requests>=2.32.0
+
+# ── Image pipeline: HTML/CSS rendered in headless Chromium ──
+# The slides have to look like the site — clipped-gradient headlines, the radial
+# wash, the masked dot grid, the mockup shadow, real Google Sans Flex kerning.
+# All of that is CSS the site already ships (templates/brand.css copies the
+# tokens verbatim). Re-implementing it as Pillow draw calls would mean
+# maintaining a second, worse copy of the design system that drifts the first
+# time the site changes. Rendering the real CSS means the slides INHERIT the
+# design instead of imitating it.
+#
+# Yes, this is ~400 MB of Chromium in the Modal image and a slower cold start.
+# For an agent rendering a few dozen slides a week, that is the cheapest line
+# in the budget. Run once after install:  playwright install chromium
+playwright>=1.49.0
+
+# Still used, for cheap raster work the browser should not be started for:
+# aspect-ratio crops, colour sampling, and stripping metadata before upload.
+Pillow>=11.0.0
+
+# FLUX via HF Inference Providers — BACKGROUND ART ONLY (abstract textures and
+# gradients that sit behind the CSS layer). Never asked to render text or a
+# logo: diffusion models approximate letterforms, and a misspelled brand name
+# on a public carousel cannot be quietly fixed.
+huggingface-hub>=0.27.0
+# Cloudflare R2 is S3-compatible. Needed because Meta's publish API FETCHES the
+# image by URL — it does not accept a raw upload.
+boto3>=1.35.0
+
+# ── Config / resilience ──
+python-dotenv>=1.0.1
+tenacity>=9.0.0
+
+# ── Deploy + lint tooling ──
+# Kept in this one file on purpose. A second requirements-dev.txt is one more
+# thing to forget to update, and `modal` in the image costs a few MB.
+modal>=0.73.82
+ruff>=0.8.0
+
+# Trend relevance scoring (TRENDS.md §4). High volume, low stakes -
+# same reasoning as the Lead Finder classifier: spending proxy budget on
+# triage starves the one job where wording decides the outcome.
+groq>=1.6.0

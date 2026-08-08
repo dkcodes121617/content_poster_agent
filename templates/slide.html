@@ -1,0 +1,119 @@
+<!doctype html>
+<!--
+  One template, every slide role. The renderer injects a JSON payload and the
+  script below builds the layout for `payload.role`.
+
+  Why one file rather than eight: the roles share the atmosphere, the type
+  scale and the footer, and those are exactly the things that must not drift
+  between slides. Eight files drift by slide four.
+
+  Roles: cover · statement · metric · steps · mockup · quote · cta
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="brand.css">
+</head>
+<body>
+  <div class="slide" id="slide">
+    <div class="layer" id="head"></div>
+    <div class="layer" id="main"></div>
+    <div class="layer foot" id="foot"></div>
+  </div>
+
+  <script>
+    // __PAYLOAD__ is replaced by the renderer before the page loads.
+    const D = __PAYLOAD__;
+
+    const slide = document.getElementById('slide');
+    slide.style.setProperty('--w', D.width + 'px');
+    slide.style.setProperty('--h', D.height + 'px');
+    slide.dataset.theme = D.theme || 'light';
+    // Drives vertical composition: cover and cta are bottom-weighted like the
+    // site's hero, everything else is optically centred.
+    slide.dataset.role = D.role || 'statement';
+
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+    // Emphasis: wrap *starred* spans in the site's clipped-gradient accent, and
+    // honour authored line breaks. The writer controls where a headline breaks
+    // — that is a typographic decision, and letting it wrap on its own is how
+    // you get a widow on the slide people actually look at.
+    const grad = (s) => esc(s)
+      .replace(/\*(.+?)\*/g, '<span class="grad">$1</span>')
+      // Any asterisk left over was unpaired. Strip it: CAMPAIGN.md §10 tells
+      // the writer to mark emphasis with *asterisks*, so a stray one is
+      // markup the writer intended, not a character they meant to show.
+      .replace(/\*/g, '')
+      .replace(/\n/g, '<br>');
+
+    // Plain text that must never show markup. Fields styled by the template
+    // itself (a metric value is already gradient-filled) take this instead of
+    // grad(): asterisks there can only ever be noise.
+    //
+    // Before this existed, six of the eleven text fields used raw esc() and
+    // rendered `*emphasis*` literally — including metric.value, which is the
+    // largest text in the deck. A giant floating `*` shipped in a review set.
+    const plain = (s) => esc(s).replace(/\*+/g, '').replace(/\n/g, '<br>');
+
+    document.getElementById('head').innerHTML =
+      D.kicker ? `<div class="kicker">${plain(D.kicker)}</div>` : '';
+
+    const roles = {
+      // The only slide most people ever see. Six words maximum, enforced
+      // upstream by the platform validator, not here.
+      cover: () => `<h1>${grad(D.title)}</h1>` +
+                   (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
+
+      statement: () => `<h2>${grad(D.title)}</h2>` +
+                       (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
+
+      // One number, enormous. Never two — a slide with two numbers has neither.
+      metric: () => `<div class="metric grad" id="metricval">${plain(D.value)}</div>` +
+                    `<div class="metric-label">${plain(D.label)}</div>` +
+                    (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
+
+      steps: () => `<h2>${grad(D.title)}</h2><div class="steps">` +
+        (D.steps || []).map((s, i) => `
+          <div class="step">
+            <div class="step-n">${String(i + 1).padStart(2, '0')}</div>
+            <div>
+              <div class="step-t">${plain(s.title)}</div>
+              ${s.detail ? `<div class="step-d">${plain(s.detail)}</div>` : ''}
+            </div>
+          </div>`).join('') + '</div>',
+
+      // A browser chrome around a real screenshot or a flat colour block.
+      // Depicting real software is what separates a portfolio from a template.
+      mockup: () => `<h2>${grad(D.title)}</h2>
+        <div class="mockup">
+          <div class="mockup-bar">
+            <span class="dot" style="background:#FF5F57"></span>
+            <span class="dot" style="background:#FEBC2E"></span>
+            <span class="dot" style="background:#28C840"></span>
+          </div>
+          <img src="${esc(D.image)}" style="display:block;width:100%">
+        </div>`,
+
+      // A client's words, set as a sentence rather than a quote graphic.
+      // Quote-card graphics read as stock; a sentence reads as a person.
+      quote: () => `<h2>${grad('"' + D.quote + '"')}</h2>` +
+                   `<p class="body">${plain(D.attribution)}</p>`,
+
+      cta: () => `<h1>${grad(D.title)}</h1>` +
+                 (D.body ? `<p class="body">${plain(D.body)}</p>` : '') +
+                 (D.pill ? `<div style="margin-top:calc(var(--w)*0.05)"><span class="pill">${plain(D.pill)}</span></div>` : ''),
+    };
+
+    document.getElementById('main').innerHTML = (roles[D.role] || roles.statement)();
+
+    document.getElementById('foot').innerHTML =
+      `<div class="wordmark"><span class="wiz">wiz</span><span class="codes">codes.site</span></div>` +
+      (D.index ? `<div class="idx">${esc(D.index)}</div>` : '<div></div>');
+
+    // The renderer waits on this flag rather than a fixed sleep, so a slow font
+    // decode cannot produce a screenshot of unstyled text.
+    document.fonts.ready.then(() => { window.__ready = true; });
+  </script>
+</body>
+</html>
