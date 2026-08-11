@@ -359,3 +359,179 @@ bugs were found in the first place.
 
 Items 1–2 are the ones worth doing even if nothing else is: they fix defects
 that are visible in public today.
+
+---
+
+## 11. Built — 8 Aug 2026
+
+All nine steps of §10 are implemented, plus §8.1 (automated image QA). Verified
+by `pytest --render` (210 tests) and one full `tools/showcase.py` sweep:
+**14/14 posts passed all six validators, 30 images, 0 audit errors.**
+
+| Step | Where it lives |
+|---|---|
+| 1. Render correctness | `validators/slides.py` · `fit()` + `audit()` in `templates/slide.html` |
+| 2. Claims validator | `validators/claims.py` |
+| 3. Layout variants | `LAYOUTS` in `campaign/visual.py` · `[data-layout]` in `brand.css` |
+| 4. Archetypes | `campaign/visual.py` (20) · builders in `slide.html` · `imaging/graphics.py` |
+| 5. Recipes + ledger | `campaign/recipes.py` · `content.visual_history` (migration 006) |
+| 6. Chart grounding | `src/data/socialStats.ts` → `snapshot.curated_stats` → `slides.chart_numbers()` |
+| 7. Geo rotation | `campaign/regions.py` · regional hours in `campaign/calendar.py` |
+| 8. Phasing | `campaign/phase.py` |
+| 9. Capacity + backfill | `campaign/capacity.py` · `content.posting_plan`, `content.backfill_log` |
+| §8.1 image QA | `window.__audit` in `slide.html`, enforced by `tools/render.py` `strict=True` |
+
+`campaign/deck.py` is the seam: `plan()` before the model, `decorate()` after.
+The write node and the showcase both call it, so the review harness cannot drift
+from what publishes.
+
+### 11.1 What building it changed
+
+Four decisions in §3 did not survive contact with the assets or the renderer.
+
+**`mockup_phone` is not built.** Every graphic in the library is landscape —
+project cards and blog diagrams authored for a blog column. A portrait phone
+frame around landscape artwork either letterboxes it (a tiny picture in a large
+frame, which is what the first render produced) or crops the content out of a
+diagram whose content is the point. Twenty archetypes with none that can only
+look wrong beats twenty-one with one that can.
+
+**`split_5050` is restricted to two archetypes.** The layout turns `#main` into
+a flex row and divides its direct children, so an archetype whose builder emits
+no panes hands the row a headline and one unconstrained block. `before_after` in
+`split_5050` ran a card clean off the canvas. Enforced by a test, not a comment.
+
+**`graphic_embed` never bleeds.** A diagram behind the scrim that makes overlaid
+text readable is itself unreadable. Decorative artwork bleeds; information does
+not.
+
+**Fit grows as well as shrinks.** §1.3 blamed vertical centring, and centring
+was only half of it: the type was sized for the longest copy a slide might carry,
+so short copy floated in 40% of the canvas whatever the layout. Sizing to the
+copy that is actually there fixes it, and openers keep their bottom weight
+because that is the site's hero, not a gap.
+
+### 11.2 What the audit caught that review sets had not
+
+Every one of these rendered *successfully* and would have shipped:
+
+- **Full-bleed artwork counted as vertical overflow.** Absolutely positioned
+  children still contribute to a container's scroll height. Fixed by giving the
+  bleed its own layer.
+- **`background:` shorthand silently reset `background-clip`.** The full-bleed
+  `.grad` override swapped the gradient and un-clipped the text, so a headline
+  rendered as a solid blue rectangle over the artwork.
+- **Type sized off canvas width alone.** Right for 4:5 and 2:3; on Facebook's
+  1200×630 a three-card `steps` slide could not fit even at 0.62×. `--base` is
+  now `min(w, h × 0.85)`.
+- **Tight leading clipped descenders.** `line-height: 1.04` is tighter than the
+  font's own ascent plus descent, so every inline `<span class="grad">` sat a
+  few pixels below its block.
+- **`text-rendering: geometricPrecision` mangled every reused blog SVG.**
+  "Batch thinking" rendered as "B at ch t hin kin g". Right for our 99px
+  headlines, catastrophic for SVG text in a 100-unit viewBox scaled 9×.
+- **`@font-face` declared 400 and 600; the artwork asks for 500 and 800.** An
+  unmatched weight is synthesised, and synthesis changes advance widths.
+
+### 11.3 What the sweep caught that no test would have
+
+- **`graphic_embed` required `image`; the pipeline attaches `svg`.** Every
+  diagram slide was rejected by the validator built to protect it.
+- **Regional hashtag banks held five tags; Instagram requires eight.** Neither
+  side looked wrong alone. The count now comes from the platform, not from
+  however many the writer happened to produce.
+- **The grounding gate flagged `Denver` and `Confirms` as invented clients.** An
+  ordinary capitalised word now needs a construction that actually asserts
+  ownership; CamelCase keeps the wide window.
+- **The voice gate rejected the exact copy CAMPAIGN.md §3 asks for.** A flat
+  "stdev ≥ 4 words" demands a fourteen-word sentence to offset a four-word one.
+  Now measured relative to the mean.
+
+### 11.4 Live gaps
+
+- **`src/data/socialStats.ts` is not pushed.** Charts are grounded against it,
+  so until the site repo ships it the chart recipes stay ineligible — which is
+  the correct failure, not a broken one.
+- **Its `industry` section is empty on purpose.** Nothing was estimated or
+  remembered. Add figures with primary sources; the four `ours` stats derive
+  from the repo and are live now.
+- **Region mix is US 26 / GB 10 / EU 4 per fortnight**, following where the
+  platforms and the buying are. Moving more slots into the 12:30–16:00 IST
+  window is one edit to `WEEK` if that balance should change.
+
+---
+
+## 12. The artwork rebuild — 8 Aug 2026
+
+A review of every image in the §11 run found something the audit could not see:
+**six imaged slides, six carrying another project's card.**
+
+    "Solar marketplace. Live in India."  ->  Cine Duniya — ENTERTAINMENT
+    "CuePilot: real-time voice AI"       ->  Bubble.IO — GAMING
+    wizcodes.site/work/cuepilot          ->  Custom CRM Platform
+
+Every word on those slides was true, so no content gate could object. The cause:
+`_project_slug()` fell through to `rng.choice(projects_with_art)` whenever the
+named project had no card — and 7 of 26 have none, including CuePilot and
+SolarSathi, the two most likely to be written about.
+
+### 12.1 Mockups are drawn now, not looked up
+
+`imaging/mockups.py` generates the artwork from the project's own category and
+tech. Eleven kinds, all **text-free**: dashboard, conversation, booking,
+catalogue, feed, analytics, editor, storefront, game, and two portrait screens
+for mobile builds.
+
+Three properties follow, and each closes a hole rather than papering over one:
+
+**There is no such thing as a project we cannot picture**, so there is no
+fallback that could reach for somebody else's. The mismatch is impossible, not
+unlikely. `_named_project()` matches by name or by `/work/<slug>` and returns
+None rather than guessing.
+
+**No words means no false claim.** A stylised interface says "this is a
+marketplace" without asserting anything a reader could later check and find
+wrong. It is the visual equivalent of showing a working prototype.
+
+**`mockup_phone` is back.** It was dropped in §11.1 because every asset was
+landscape and a portrait frame could only letterbox or crop. Generated artwork
+has whatever shape it needs, and ten of twenty-six projects are mobile apps that
+were being shown in browser chrome. `decorate()` swaps the frame when the
+project is a mobile build.
+
+Category outranks description: matching one flat haystack put every game on a
+dashboard and drew a film app as a two-pane code editor, because its description
+contains the word "viewer".
+
+### 12.2 Three other defects the same review turned up
+
+- **`"undefined"` at 67px on a testimonial slide.** `'"' + D.quote + '"'` is
+  concatenation before escaping, so a missing field stringifies. Escaping now
+  coalesces nullish, the validator rejects a `quote` slide with no quote, and
+  the audit carries a net for any future concatenation.
+- **"Because requirements d"** — a caption sliced at `[:180]`. The single-image
+  fallback now cuts on sentence boundaries and returns nothing rather than half
+  a sentence.
+- **Full-bleed artwork letterboxed**, leaving a third of the slide flat colour
+  with the headline pushed onto the wordmark. `preserveAspectRatio="slice"`
+  makes full bleed mean full bleed.
+
+### 12.3 Two new audit errors
+
+Both were invisible before, and both had shipped:
+
+- the literal word `undefined` / `null` / `NaN` anywhere on the canvas
+- any element whose box runs under the wordmark — an **overlap** test, not an
+  overflow one, because `#main` and `.foot` are siblings and a shadowed mockup
+  can sit on the footer with every element inside its own container
+
+### 12.4 Verified
+
+`tools/e2e.py` — 20/20 posts, 48 visual combinations, **122/122 guardrails**,
+zero render-audit errors. A separate scan of every slide in the run found no
+`undefined`, no mid-sentence cut, and **no project card reused anywhere**: all
+artwork is either a generated mockup or a real blog diagram.
+
+Real-news path exercised end to end: 485 items harvested, 6 verified against 22
+captured sources, 6 angles synthesised, two timely posts published from a live
+story with its citation bound for a first comment.

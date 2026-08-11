@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import tempfile
 from datetime import datetime
 
@@ -22,7 +23,8 @@ from wizcore.llm.client import LLMClient, extract_json
 from wizcore.obs.log import log_event
 from wizcore.telegram.send import esc, send, send_album, send_photo
 
-from campaign.calendar import due_slots, ist_now
+from campaign import keywords, regions
+from campaign.calendar import boost_active, due_slots, ist_now
 from config import AGENT_NAME
 from imaging import r2, render
 from platforms import Draft, PublishResult, get_platform
@@ -130,8 +132,10 @@ def make_preflight(config, reader: SiteReader, forced: list | None = None):
         # the calendar and nothing else: the validators, the idempotency claim
         # and DRY_RUN all still apply, because the calendar is scheduling, not
         # safety.
+        boosting = boost_active(config.start_date(), config.boost_weeks, now.date())
         due = forced or due_slots(
-            now, config.active_platforms(), jitter_minutes=config.jitter_minutes
+            now, config.active_platforms(), jitter_minutes=config.jitter_minutes,
+            boost=boosting,
         )
 
         # Off-calendar timely insert (TRENDS.md §6). Only when nothing is
@@ -208,6 +212,9 @@ def make_write(config, budget, reader: SiteReader):
     """
 
     def write(state):
+        from campaign import deck as deck_mod
+        from imaging.graphics import GraphicsLibrary
+
         snapshot = build_snapshot(reader)   # from the reader's cache, not the network
         facts = state.get("facts_block") or ""
         history = state.get("history") or []
@@ -215,6 +222,10 @@ def make_write(config, budget, reader: SiteReader):
             model=config.voice_model,
             on_usage=budget.on_llm_usage() if budget else None,
         )
+        # Shares the reader, so it shares the per-run cache: an SVG fetched for
+        # slide two of a carousel is free for slide four.
+        library = GraphicsLibrary(reader) if config.site_artwork else None
+        now = datetime.fromisoformat(state["now_iso"])
 
         drafts: list[Draft] = []
         rejected: list[dict] = []
@@ -224,12 +235,29 @@ def make_write(config, budget, reader: SiteReader):
             accepted = None
             reasons: list[str] = []
 
+            # Everything visual is decided before a word is written. The writer
+            # is told the deck's shape; asking it to choose is what produced one
+            # deck shape every day for a month.
+            deck = deck_mod.plan(
+                config, platform=slot.platform, pillar=slot.pillar, slides=slot.slides,
+                hour_ist=slot.hour, snapshot=snapshot, library=library, today=now.date(),
+            )
+            if deck.substituted_from:
+                log.info(
+                    "phase %s withholds %s; writing %s instead",
+                    deck.phase_name, deck.substituted_from, deck.pillar,
+                )
+            if not deck_mod.capacity_allows(config, slot.platform, now.date()):
+                rejected.append({"platform": slot.platform, "pillar": deck.pillar,
+                                 "reasons": ["daily posting plan already met"]})
+                continue
+
             # A timely slot carries a verified angle plus the captured sources
             # that substantiate it. Those sources are what let the grounding
             # gate accept an external figure at all — without them every
             # timely post is rejected, correctly.
             angle_row, angle_sources, extra_brief = _timely_context(config, slot)
-            if slot.pillar == "timely" and not angle_row:
+            if deck.pillar == "timely" and not angle_row:
                 # The angle expired or was taken between preflight and here.
                 # Skipping is right: a timely post with no verified angle would
                 # be an ungrounded opinion about the news.
@@ -243,10 +271,18 @@ def make_write(config, budget, reader: SiteReader):
                     break
                 try:
                     raw = client.complete(
-                        system=post_system_prompt(facts),
+                        system=post_system_prompt(facts, snapshot.stats_block()),
                         user=post_user_prompt(
-                            slot.pillar, slot.platform, slot.fmt, slot.slides,
+                            deck.pillar, slot.platform, slot.fmt, slot.slides,
                             extra_brief + note,
+                            archetypes=deck.archetypes,
+                            region_brief=(
+                                regions.brief(deck.region) if config.geo_targeting else ""
+                            ),
+                            phrase_brief=(
+                                keywords.brief(deck.phrase, slot.platform)
+                                if deck.phrase else ""
+                            ),
                         ),
                         max_tokens=2000,
                         temperature=0.85,   # copy, not classification
@@ -263,7 +299,16 @@ def make_write(config, budget, reader: SiteReader):
 
                 caption = str(parsed.get("caption") or "").strip()
                 hashtags = [str(h) for h in (parsed.get("hashtags") or []) if str(h).strip()]
-                slides = parsed.get("slides") or []
+                # Theme, layout and real artwork are attached here rather than
+                # asked for, and the slides are validated in the exact form the
+                # renderer will receive. Validating the raw model output would
+                # check a deck that never gets built.
+                slides = deck_mod.decorate(
+                    parsed.get("slides") or [], deck, library=library, snapshot=snapshot,
+                )
+                regional = deck_mod.hashtags(config, deck, len(hashtags), now.date())
+                if regional:
+                    hashtags = regional
                 slides_text = " ".join(_slide_text(s) for s in slides)
                 # Must match what the render node will actually produce, or the
                 # platform gate validates a picture that never gets made. Threads
@@ -284,12 +329,16 @@ def make_write(config, budget, reader: SiteReader):
                     snapshot=snapshot,
                     history=history,
                     slides_text=slides_text,
+                    slides=slides,
                     repetition_threshold=config.repetition_threshold,
+                    phrase=deck.phrase,
+                    seo_required=config.seo_phrase_required,
+                    pillar=deck.pillar,
                 )
                 if verdict.ok:
                     accepted = Draft(
                         platform=slot.platform,
-                        pillar=slot.pillar,
+                        pillar=deck.pillar,
                         caption=caption,
                         hashtags=hashtags,
                         slides=slides,
@@ -302,6 +351,10 @@ def make_write(config, budget, reader: SiteReader):
                         raw={
                             "slot": slot.key,
                             "attempt": attempt,
+                            "recipe": deck.recipe,
+                            "region": deck.region.code,
+                            **({"phrase": deck.phrase.text} if deck.phrase else {}),
+                            "phase": deck.phase_name,
                             **({"angle_id": angle_row["id"]} if angle_row else {}),
                         },
                     )
@@ -310,7 +363,7 @@ def make_write(config, budget, reader: SiteReader):
                 reasons = verdict.reasons
                 log.info(
                     "draft rejected (%s/%s attempt %d): %s",
-                    slot.platform, slot.pillar, attempt, verdict.summary(),
+                    slot.platform, deck.pillar, attempt, verdict.summary(),
                 )
                 note = REGENERATE_NOTE.format(reasons="\n".join(f"- {r}" for r in reasons))
 
@@ -319,9 +372,15 @@ def make_write(config, budget, reader: SiteReader):
                 # Guard against two slots in the same run producing near-identical
                 # copy — the history table cannot see this run yet.
                 history = [*history, accepted.caption]
+                # Recorded on acceptance, not on publish. The ledger's question
+                # is "what has this platform looked like lately", and a deck
+                # that was planned and drafted has used up its turn whether or
+                # not the API call later succeeds.
+                deck_mod.record(config, deck, state.get("run_id") or "")
+                log.info("deck %s: %s", slot.platform, deck.brief())
             else:
                 rejected.append(
-                    {"platform": slot.platform, "pillar": slot.pillar, "reasons": reasons}
+                    {"platform": slot.platform, "pillar": deck.pillar, "reasons": reasons}
                 )
 
         log_event(log, "write.done", drafted=len(drafts), rejected=len(rejected))
@@ -393,15 +452,45 @@ def make_render(config):
 
 
 def _fallback_slide(draft: Draft) -> dict:
-    """A single-image post still needs one slide to render."""
-    first = draft.caption.split("\n", 1)[0][:90]
+    """A single-image post still needs one slide to render.
+
+    Cut on SENTENCE boundaries, never on a character count. Slicing at [:180]
+    put "Because requirements d" on a published slide — a sentence that stops
+    mid-word reads as a bug to every person who sees it, and it was a bug.
+    """
+    sentences = _sentences(draft.caption)
+    title = _fit_sentences(sentences[:1], 90) or draft.caption[:90].rsplit(" ", 1)[0]
+    used = len(_sentences(title))
     return {
         "role": "statement",
         "theme": "dark" if draft.pillar in ("direct_offer", "proof") else "light",
         "kicker": draft.pillar.replace("_", " ").title(),
-        "title": first,
-        "body": draft.caption[len(first):].strip()[:180],
+        "title": title,
+        "body": _fit_sentences(sentences[used:], 200),
     }
+
+
+def _sentences(text: str) -> list[str]:
+    """Whole sentences, in order, with their punctuation kept."""
+    parts = re.findall(r"[^.!?\n]+[.!?]?", (text or "").replace("\n", " "))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _fit_sentences(sentences: list[str], budget: int) -> str:
+    """As many whole sentences as fit. Never a partial one.
+
+    Returns "" rather than a fragment when even the first sentence is too long:
+    an empty body is a clean slide, and half a sentence is a visible defect.
+    """
+    out: list[str] = []
+    total = 0
+    for sentence in sentences:
+        extra = len(sentence) + (1 if out else 0)
+        if total + extra > budget:
+            break
+        out.append(sentence)
+        total += extra
+    return " ".join(out)
 
 
 def make_publish(config):

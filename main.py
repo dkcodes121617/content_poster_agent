@@ -67,6 +67,25 @@ def run_once(config=CONFIG, run_id: str | None = None, forced: list[Slot] | None
 
 
 def print_schedule() -> None:
+    """The week, plus everything that now modifies it.
+
+    The calendar alone stopped being the whole answer once phasing could
+    substitute a pillar and geography could decide who a slot is written for.
+    Printing the slots without those would show a schedule the agent no longer
+    follows.
+    """
+    from campaign import capacity, phase, regions
+    from campaign.calendar import today_ist
+
+    today = today_ist(CONFIG.display_tz)
+    start = CONFIG.start_date()
+    print(phase.describe(start, today))
+    current = phase.current(start, today)
+    print(f"  {current.note}")
+    print("  mix: " + ", ".join(f"{k} {v:.0%}" for k, v in
+                                 sorted(current.mix.items(), key=lambda kv: -kv[1])))
+    print()
+
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     print("Weekly rhythm (IST, jittered +/-25 min at run time):\n")
     for index, day in enumerate(days):
@@ -76,8 +95,21 @@ def print_schedule() -> None:
             continue
         for slot in sorted(slots, key=lambda s: (s.hour, s.minute)):
             extra = f" x{slot.slides}" if slot.slides else ""
-            print(f"  {day}  {slot.hour:02d}:{slot.minute:02d}  "
-                  f"{slot.platform:<10} {slot.pillar:<13} {slot.fmt}{extra}")
+            effective = phase.substitute(slot.pillar, start, today)
+            pillar = (
+                f"{effective} (was {slot.pillar})" if effective != slot.pillar else slot.pillar
+            )
+            region = (
+                regions.for_slot(slot.platform, slot.hour, today).code
+                if CONFIG.geo_targeting else "--"
+            )
+            print(f"  {day}  {slot.hour:02d}:{slot.minute:02d}  {region:<3} "
+                  f"{slot.platform:<10} {pillar:<22} {slot.fmt}{extra}")
+
+    if CONFIG.capacity_scheduling:
+        print("\nPosting plan (targets per day):")
+        for line in capacity.describe(CONFIG, CONFIG.active_platforms(), today):
+            print(line)
 
 
 def main() -> int:

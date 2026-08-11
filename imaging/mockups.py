@@ -1,0 +1,419 @@
+"""Product mockups, drawn here rather than scraped from the site.
+
+## Why this replaces the site's project cards
+
+The first version embedded `public/graphics/<slug>-<category>.svg` — the card the
+website shows in its work grid. Two things were wrong with that, and the second
+one was serious.
+
+**They are directory listings, not products.** An icon, a project name and two
+technology pills. On a slide the reader sees a catalogue entry where they were
+promised a look at the software.
+
+**They can lie.** Seven of twenty-six projects have no card at all, and the
+lookup fell through to *any* project that did. A review run produced a slide
+headlined "Solar marketplace. Live in India." above a card reading
+**Cine Duniya — ENTERTAINMENT**, and another with "CuePilot: real-time voice AI"
+above **Bubble.IO — GAMING**. Six imaged slides, six wrong. That is a false claim
+about our own work, published on an account that cannot un-post, and no
+validator upstream could see it because every word on the slide was true.
+
+So mockups are generated from the project's *kind of software*, and they contain
+**no text at all** — no names, no numbers, no labels. A stylised interface says
+"this is a booking desk" or "this is a dashboard" without asserting anything a
+reader could later find to be untrue. It is the visual equivalent of "a working
+prototype", and it is the treatment that looked best in review.
+
+## What decides which mockup
+
+The project's category, industry and tech stack, in that order of specificity.
+An unrecognised project gets `dashboard`, which is honest for almost any
+business software. Nothing is random: the same project always draws the same
+mockup, so a reader who sees two posts about one project sees one product.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+# ── palette ──────────────────────────────────────────────────────────────────
+# The site's tokens. Duplicated from brand.css deliberately: these strings go
+# inside generated SVG markup, where a CSS variable would not resolve.
+INK = "#15233A"
+MUTED = "#8FA0B5"
+LINE = "#DCE6EE"
+SURFACE = "#FFFFFF"
+RAISED = "#EEF3F7"
+BLUE = "#2E90C4"
+BABY = "#8ECAE6"
+WASH = "#E4F2F9"
+TEAL = "#0E9C9C"
+VIOLET = "#8B3FD9"
+
+# 16:10, the shape of a browser viewport. Every mockup uses it so the browser
+# and full-bleed frames can rely on one aspect ratio.
+W, H = 640, 400
+
+
+@dataclass(frozen=True)
+class Mockup:
+    kind: str
+    svg: str
+    describes: str      # what a reader would say it depicts
+
+
+def _svg(body: str) -> str:
+    return (
+        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-hidden="true"><defs>'
+        f'<linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0%" stop-color="{BABY}"/><stop offset="100%" stop-color="{BLUE}"/>'
+        f"</linearGradient>"
+        f'<linearGradient id="g2" x1="0" y1="0" x2="1" y2="0">'
+        f'<stop offset="0%" stop-color="{BABY}" stop-opacity="0.45"/>'
+        f'<stop offset="100%" stop-color="{BLUE}" stop-opacity="0.75"/>'
+        f"</linearGradient></defs>"
+        f'<rect width="{W}" height="{H}" fill="{RAISED}"/>{body}</svg>'
+    )
+
+
+def _r(x, y, w, h, fill=LINE, rx=4, opacity=None) -> str:
+    o = f' opacity="{opacity}"' if opacity is not None else ""
+    return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" fill="{fill}"{o}/>'
+
+
+def _c(cx, cy, r, fill=BABY, opacity=None) -> str:
+    o = f' opacity="{opacity}"' if opacity is not None else ""
+    return f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{fill}"{o}/>'
+
+
+def _card(x, y, w, h) -> str:
+    return _r(x, y, w, h, SURFACE, rx=10)
+
+
+def _rows(x, y, w, n, gap=14, h=8, taper=0.72) -> str:
+    """Stacked text-placeholder rows. Tapering reads as a paragraph, not a table."""
+    out = []
+    for i in range(n):
+        out.append(_r(x, y + i * gap, int(w * (taper ** i if i else 1)), h, LINE, rx=h // 2))
+    return "".join(out)
+
+
+# ── the mockups ──────────────────────────────────────────────────────────────
+def dashboard() -> str:
+    """Sidebar, three metric tiles, a bar chart. Reads as business software."""
+    body = [
+        _r(0, 0, 132, H, SURFACE, rx=0),
+        _r(20, 24, 44, 10, fill=BLUE, rx=5),
+        *[_r(20, 62 + i * 26, 88 - i * 6, 8) for i in range(5)],
+        _r(132, 0, W - 132, 46, SURFACE, rx=0),
+        _r(156, 18, 120, 10, rx=5),
+        _c(W - 32, 23, 11, WASH),
+    ]
+    for i in range(3):
+        x = 156 + i * 154
+        body += [_card(x, 68, 132, 74), _r(x + 16, 88, 40, 16, fill=BLUE, rx=4),
+                 _r(x + 16, 114, 84, 7, rx=3)]
+    body.append(_card(156, 160, 440, 208))
+    for i, hgt in enumerate((92, 138, 64, 116, 158, 82)):
+        body.append(_r(186 + i * 68, 340 - hgt, 40, hgt, "url(#g2)", rx=6))
+    body.append(_r(186, 340, 380, 2, LINE, rx=1))
+    return _svg("".join(body))
+
+
+def conversation() -> str:
+    """A message thread with an assistant suggestion. AI, chat, voice, support."""
+    body = [
+        _r(0, 0, W, 46, SURFACE, rx=0), _c(30, 23, 12, WASH), _r(52, 18, 96, 10, rx=5),
+        _card(24, 68, 300, 60), *[_r(44, 86 + i * 18, 250 - i * 60, 8) for i in range(2)],
+        _card(W - 324, 148, 300, 48), *[_r(W - 304, 166 + i * 18, 240 - i * 70, 8) for i in range(2)],
+        _card(24, 216, 340, 60), *[_r(44, 234 + i * 18, 290 - i * 80, 8) for i in range(2)],
+    ]
+    # The highlighted suggestion — the one element with brand colour, so the eye
+    # lands on the thing the software actually does.
+    body += [
+        _r(24, 296, W - 48, 76, "url(#g1)", rx=12),
+        _r(48, 318, 150, 10, SURFACE, rx=5, opacity=0.95),
+        _r(48, 340, 320, 8, SURFACE, rx=4, opacity=0.7),
+        _c(W - 62, 334, 16, SURFACE, opacity=0.9),
+    ]
+    return _svg("".join(body))
+
+
+def booking() -> str:
+    """A month grid beside a column of slots. Appointments, scheduling, rotas."""
+    body = [_r(0, 0, W, 46, SURFACE, rx=0), _r(24, 18, 110, 10, fill=BLUE, rx=5),
+            _card(24, 68, 372, 300)]
+    for i in range(7):
+        body.append(_r(44 + i * 48, 88, 26, 6, rx=3))
+    for row in range(5):
+        for col in range(7):
+            n = row * 7 + col
+            filled = n in (9, 10, 16, 23, 24, 25, 30)
+            body.append(_r(44 + col * 48, 110 + row * 48, 34, 34,
+                           "url(#g2)" if filled else RAISED, rx=8))
+    body.append(_card(416, 68, 200, 300))
+    for i in range(5):
+        body += [_r(436, 92 + i * 56, 160, 40, RAISED, rx=8),
+                 _r(450, 104 + i * 56, 60, 7, rx=3),
+                 _r(450, 118 + i * 56, 100, 6, MUTED, rx=3)]
+    return _svg("".join(body))
+
+
+def catalogue() -> str:
+    """A filter rail and a grid of listings. Marketplaces, directories, stores."""
+    body = [_r(0, 0, W, 46, SURFACE, rx=0), _r(24, 16, 220, 14, RAISED, rx=7),
+            _r(W - 120, 16, 96, 14, "url(#g1)", rx=7),
+            _r(0, 46, 120, H - 46, SURFACE, rx=0)]
+    for i in range(6):
+        body += [_r(20, 74 + i * 34, 12, 12, LINE, rx=3), _r(40, 77 + i * 34, 60 - i * 4, 7, rx=3)]
+    for row in range(2):
+        for col in range(3):
+            x, y = 144 + col * 162, 70 + row * 156
+            body += [_card(x, y, 142, 136), _r(x, y, 142, 76, "url(#g2)", rx=10),
+                     _r(x + 14, y + 92, 88, 8, rx=4), _r(x + 14, y + 108, 54, 7, MUTED, rx=3)]
+    return _svg("".join(body))
+
+
+def feed() -> str:
+    """Rows with avatars and a status pill. Lists, CRMs, ticket queues."""
+    body = [_r(0, 0, W, 46, SURFACE, rx=0), _r(24, 18, 130, 10, fill=BLUE, rx=5),
+            _r(W - 150, 14, 126, 18, RAISED, rx=9)]
+    for i in range(5):
+        y = 70 + i * 64
+        body += [_card(24, y, W - 48, 52), _c(52, y + 26, 15, WASH),
+                 _r(82, y + 15, 190 - i * 14, 9, rx=4), _r(82, y + 32, 130, 7, MUTED, rx=3),
+                 _r(W - 130, y + 18, 82, 16, "url(#g2)" if i in (0, 3) else RAISED, rx=8)]
+    return _svg("".join(body))
+
+
+def analytics() -> str:
+    """A line chart with a legend. Reporting, forecasting, monitoring."""
+    pts = [(0, 118), (1, 96), (2, 104), (3, 72), (4, 78), (5, 44), (6, 52), (7, 22)]
+    x0, y0, step, scale = 176, 330, 56, 1.0
+    line = " ".join(f"{x0 + x * step},{y0 - (140 - y) * scale}" for x, y in pts)
+    area = f"{x0},{y0} {line} {x0 + 7 * step},{y0}"
+    body = [
+        _r(0, 0, W, 46, SURFACE, rx=0), _r(24, 18, 120, 10, fill=BLUE, rx=5),
+        _card(24, 68, W - 48, 300),
+        *[_r(56, 108 + i * 20, 96 - i * 10, 8) for i in range(3)],
+        *[_r(x0, 130 + i * 50, W - 96 - 152, 1, LINE, rx=0) for i in range(5)],
+        f'<polygon points="{area}" fill="url(#g1)" opacity="0.16"/>',
+        (
+            f'<polyline points="{line}" fill="none" stroke="{BLUE}" stroke-width="4" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        ),
+        *[_c(x0 + x * step, y0 - (140 - y) * scale, 5, BLUE) for x, y in pts[::3]],
+    ]
+    return _svg("".join(body))
+
+
+def editor() -> str:
+    """Two panes: structure on the left, content on the right. Tools, builders."""
+    body = [_r(0, 0, W, 46, SURFACE, rx=0), _r(24, 18, 90, 10, fill=BLUE, rx=5),
+            _r(0, 46, 176, H - 46, SURFACE, rx=0)]
+    for i in range(8):
+        indent = 20 + (12 if i in (2, 3, 6) else 0)
+        body += [_r(indent, 74 + i * 30, 10, 10, LINE if i not in (3,) else BLUE, rx=2),
+                 _r(indent + 18, 77 + i * 30, 96 - i * 5, 7, rx=3)]
+    body += [_card(200, 70, W - 224, 298), _r(224, 96, 200, 12, fill=BLUE, rx=6),
+             _rows(224, 130, 360, 4), _r(224, 200, 372, 84, RAISED, rx=8),
+             _rows(224, 302, 340, 3)]
+    return _svg("".join(body))
+
+
+def storefront() -> str:
+    """A hero band over three cards. Marketing sites and landing pages."""
+    body = [_r(0, 0, W, 46, SURFACE, rx=0), _r(24, 18, 84, 10, fill=BLUE, rx=5),
+            *[_r(W - 60 - i * 62, 18, 44, 8, rx=4) for i in range(3)],
+            _r(0, 46, W, 156, "url(#g1)", rx=0),
+            _r(48, 92, 300, 18, SURFACE, rx=9, opacity=0.95),
+            _r(48, 122, 220, 12, SURFACE, rx=6, opacity=0.75),
+            _r(48, 152, 116, 26, SURFACE, rx=13, opacity=0.95)]
+    for i in range(3):
+        x = 40 + i * 190
+        body += [_card(x, 228, 168, 130), _c(x + 30, 262, 15, WASH),
+                 _r(x + 20, 292, 110, 9, rx=4), _rows(x + 20, 312, 128, 2, gap=14, h=7)]
+    return _svg("".join(body))
+
+
+def game() -> str:
+    """A play area with a score chip and controls. Games, interactive apps."""
+    body = [
+        _r(0, 0, W, H, "#0A0D12", rx=0),
+        _r(24, 20, 96, 26, "url(#g1)", rx=13),
+        _r(W - 132, 20, 108, 26, SURFACE, rx=13, opacity=0.14),
+        _r(48, 84, W - 96, 232, SURFACE, rx=16, opacity=0.06),
+    ]
+    for i, (cx, cy, rr) in enumerate(((150, 150, 26), (300, 210, 34), (450, 140, 22),
+                                      (520, 240, 30), (230, 262, 18))):
+        body.append(_c(cx, cy, rr, "url(#g1)", opacity=0.85 - i * 0.1))
+    body += [
+        _c(96, 352, 26, SURFACE, opacity=0.12), _c(96, 352, 10, SURFACE, opacity=0.5),
+        _c(W - 120, 352, 20, "url(#g1)"), _c(W - 64, 352, 20, SURFACE, opacity=0.12),
+    ]
+    return _svg("".join(body))
+
+
+# ── portrait mockups, for mobile builds ──────────────────────────────────────
+# Ten of twenty-six projects are mobile apps. Drawing them in browser chrome
+# says the wrong thing about the work, and now that the artwork is generated
+# rather than looked up, a phone-shaped canvas is simply another function.
+PW, PH = 320, 640
+
+
+def _psvg(body: str) -> str:
+    return (
+        f'<svg viewBox="0 0 {PW} {PH}" xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-hidden="true"><defs>'
+        f'<linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0%" stop-color="{BABY}"/><stop offset="100%" stop-color="{BLUE}"/>'
+        f"</linearGradient>"
+        f'<linearGradient id="g2" x1="0" y1="0" x2="1" y2="0">'
+        f'<stop offset="0%" stop-color="{BABY}" stop-opacity="0.45"/>'
+        f'<stop offset="100%" stop-color="{BLUE}" stop-opacity="0.75"/>'
+        f"</linearGradient></defs>"
+        f'<rect width="{PW}" height="{PH}" fill="{RAISED}"/>{body}</svg>'
+    )
+
+
+def _tabbar() -> str:
+    out = [_r(0, PH - 64, PW, 64, SURFACE, rx=0)]
+    for i in range(4):
+        out += [_r(34 + i * 72, PH - 44, 22, 22, "url(#g1)" if i == 0 else LINE, rx=6)]
+    return "".join(out)
+
+
+def mobile_list() -> str:
+    """A scrolling list with a search field. Most utility apps look like this."""
+    body = [_r(0, 0, PW, 92, SURFACE, rx=0), _r(24, 30, 120, 12, fill=BLUE, rx=6),
+            _r(24, 58, PW - 48, 22, RAISED, rx=11)]
+    for i in range(5):
+        y = 108 + i * 88
+        body += [_r(16, y, PW - 32, 76, SURFACE, rx=12), _r(32, y + 16, 44, 44, "url(#g2)", rx=10),
+                 _r(88, y + 20, 150 - i * 12, 9, rx=4), _r(88, y + 38, 110, 7, MUTED, rx=3),
+                 _r(88, y + 52, 62, 7, LINE, rx=3)]
+    body.append(_tabbar())
+    return _psvg("".join(body))
+
+
+def mobile_chat() -> str:
+    """A conversation on a phone. Assistants, support, anything that talks."""
+    body = [_r(0, 0, PW, 92, SURFACE, rx=0), _c(40, 52, 16, WASH), _r(68, 46, 110, 11, rx=5)]
+    rows = ((110, 200, False), (176, 150, True), (232, 220, False), (312, 170, True))
+    for y, w, right in rows:
+        x = PW - 16 - w if right else 16
+        body += [_r(x, y, w, 52, "url(#g1)" if right else SURFACE, rx=14),
+                 _r(x + 16, y + 16, w - 60, 8, SURFACE if right else LINE, rx=4,
+                    opacity=0.85 if right else None),
+                 _r(x + 16, y + 32, w - 110, 7, SURFACE if right else LINE, rx=3,
+                    opacity=0.6 if right else None)]
+    body += [_r(16, 400, PW - 32, 96, SURFACE, rx=14), _r(36, 424, 90, 9, fill=BLUE, rx=4),
+             _r(36, 446, PW - 92, 7, LINE, rx=3), _r(36, 462, PW - 140, 7, LINE, rx=3),
+             _r(16, 516, PW - 32, 40, RAISED, rx=20), _c(PW - 44, 536, 14, "url(#g1)")]
+    body.append(_tabbar())
+    return _psvg("".join(body))
+
+
+KINDS = {
+    "dashboard": (dashboard, "a dashboard with metrics and a chart"),
+    "conversation": (conversation, "a message thread with an assistant suggestion"),
+    "booking": (booking, "a calendar with bookable slots"),
+    "catalogue": (catalogue, "a filterable grid of listings"),
+    "feed": (feed, "a list of records with statuses"),
+    "analytics": (analytics, "a trend chart over time"),
+    "editor": (editor, "a two-pane builder"),
+    "storefront": (storefront, "a marketing page with a hero and cards"),
+    "game": (game, "a play screen with a score and controls"),
+    "mobile_list": (mobile_list, "a mobile app listing screen"),
+    "mobile_chat": (mobile_chat, "a mobile conversation with an assistant"),
+}
+
+# Which kinds are drawn portrait. The template uses this to choose a phone frame
+# over browser chrome — a mobile app in a browser window is a small lie about
+# what was built.
+PORTRAIT = frozenset({"mobile_list", "mobile_chat"})
+
+# ── choosing one ─────────────────────────────────────────────────────────────
+# Most specific signal first. Each entry is (regex over the project's text, kind).
+# Order matters: "booking" beats "platform", because a booking platform is a
+# booking screen and drawing it as a dashboard would say less.
+_RULES: tuple[tuple[str, str], ...] = (
+    (
+        r"voice|call|chat|whatsapp|message|support|assistant|copilot|agent|conversation",
+        "conversation",
+    ),
+    (r"book|appointment|schedul|rota|shift|calendar|reserv|slot", "booking"),
+    (r"marketplace|vendor|catalog|store|shop|ecommerce|e-commerce|listing|product", "catalogue"),
+    (r"crm|lead|pipeline|ticket|queue|inbox|directory|roster|record", "feed"),
+    (r"analytic|report|forecast|monitor|insight|metric|track", "analytics"),
+    (r"builder|editor|studio|no-?code|cms|content|design tool|viewer", "editor"),
+    (r"website|landing|marketing site|portfolio|brochure|blog", "storefront"),
+    (r"dashboard|platform|erp|manage|admin|operations|business", "dashboard"),
+)
+
+DEFAULT_KIND = "dashboard"
+
+
+# Mobile subject matter, once the category has already said "this is an app".
+# Everything that is not a conversation is a list, which is what most apps are.
+_MOBILE_CHAT = re.compile(r"chat|voice|assistant|agent|journal|talk|message|support|ai\b")
+
+
+def kind_for(*, name: str = "", category: str = "", industry: str = "",
+             description: str = "", tech: str = "") -> str:
+    """The mockup kind for a project. Deterministic — same project, same picture.
+
+    A reader who sees two posts about one project must see one product. Anything
+    seeded by run or date would make the same software look like two different
+    things, which is exactly the confusion the old random fallback caused.
+
+    **Category decides the frame before subject decides the contents.** Matching
+    one flat haystack put every game on a dashboard and drew ten mobile apps in
+    browser chrome — "Cine Duniya", a film app, came out as a two-pane code
+    editor because its description contains the word "viewer". What kind of
+    software a thing is outranks what it is about.
+    """
+    cat = (category or "").lower()
+    subject = " ".join((name, industry, description, tech)).lower()
+
+    # An AI product *about* games is a conversation, not a game. The category
+    # outranks a keyword in the description: "AI Game Guide" is an assistant
+    # that answers questions, and drawing it as a play screen shows the wrong
+    # software.
+    if cat == "ai" and re.search(r"chat|voice|assist|agent|guide|copilot|support", subject):
+        return "conversation"
+    if "game" in cat or re.search(r"\bgame\b|arcade|puzzle|player", subject):
+        return "game"
+    if re.search(r"mobile|ios|android|flutter|react native", f"{cat} {tech}".lower()):
+        return "mobile_chat" if _MOBILE_CHAT.search(subject) else "mobile_list"
+
+    haystack = f"{cat} {subject}"
+    for pattern, kind in _RULES:
+        if re.search(pattern, haystack):
+            return kind
+    return DEFAULT_KIND
+
+
+def for_project(project) -> Mockup:
+    """A mockup for a `ProjectFact`. Never None — every project can be drawn.
+
+    That is the point of generating rather than looking up: there is no such
+    thing as a project with no artwork any more, so there is no fallback path
+    that could reach for somebody else's.
+    """
+    kind = kind_for(
+        name=getattr(project, "name", "") or "",
+        category=getattr(project, "category", "") or "",
+        industry=getattr(project, "industry", "") or "",
+        description=getattr(project, "description", "") or "",
+        tech=" ".join(getattr(project, "tech", []) or []),
+    )
+    build, describes = KINDS[kind]
+    return Mockup(kind=kind, svg=build(), describes=describes)
+
+
+def by_kind(kind: str) -> Mockup:
+    build, describes = KINDS.get(kind, KINDS[DEFAULT_KIND])
+    return Mockup(kind=kind if kind in KINDS else DEFAULT_KIND,
+                  svg=build(), describes=describes)

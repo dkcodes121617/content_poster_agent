@@ -1,13 +1,28 @@
 <!doctype html>
 <!--
-  One template, every slide role. The renderer injects a JSON payload and the
-  script below builds the layout for `payload.role`.
+  One template, every archetype. The renderer injects a JSON payload and the
+  builder for `payload.role` draws it.
 
-  Why one file rather than eight: the roles share the atmosphere, the type
-  scale and the footer, and those are exactly the things that must not drift
-  between slides. Eight files drift by slide four.
+  Why one file rather than twenty-one: the archetypes share the atmosphere, the
+  type scale and the footer, and those are exactly the things that must not
+  drift between slides. Twenty-one files drift by slide four.
 
-  Roles: cover · statement · metric · steps · mockup · quote · cta
+  The vocabulary is defined in `campaign/visual.py`, not here. That file is the
+  contract the validator, the prompt and this template all read; this is only
+  the drawing half of it, and an archetype missing a builder below is caught by
+  tests/test_render.py rather than by rendering an empty box in public.
+
+  Three things happen after the payload is drawn, in this order, and the order
+  matters:
+
+    1. fonts load     — measuring before this gives fallback-font metrics, so
+                        every measurement below would be wrong
+    2. fit()          — shrink the type scale until nothing overflows
+    3. audit()        — report what had to shrink and what still does not fit,
+                        on window.__audit, so the renderer can fail a build
+                        instead of writing a broken PNG
+
+  Only then is window.__ready set.
 -->
 <html lang="en">
 <head>
@@ -16,6 +31,7 @@
 </head>
 <body>
   <div class="slide" id="slide">
+    <div class="bleed" id="bleed"></div>
     <div class="layer" id="head"></div>
     <div class="layer" id="main"></div>
     <div class="layer foot" id="foot"></div>
@@ -28,10 +44,10 @@
     const slide = document.getElementById('slide');
     slide.style.setProperty('--w', D.width + 'px');
     slide.style.setProperty('--h', D.height + 'px');
-    slide.dataset.theme = D.theme || 'light';
-    // Drives vertical composition: cover and cta are bottom-weighted like the
-    // site's hero, everything else is optically centred.
-    slide.dataset.role = D.role || 'statement';
+    slide.dataset.theme  = D.theme  || 'light';
+    slide.dataset.role   = D.role   || 'statement';
+    slide.dataset.layout = D.layout || 'centred';
+    slide.dataset.family = D.family || '';
 
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
@@ -41,9 +57,10 @@
     // you get a widow on the slide people actually look at.
     const grad = (s) => esc(s)
       .replace(/\*(.+?)\*/g, '<span class="grad">$1</span>')
-      // Any asterisk left over was unpaired. Strip it: CAMPAIGN.md §10 tells
-      // the writer to mark emphasis with *asterisks*, so a stray one is
-      // markup the writer intended, not a character they meant to show.
+      // Any asterisk left over was unpaired. Strip it: the writer marks
+      // emphasis with *asterisks*, so a stray one is markup they intended, not
+      // a character they meant to show. The pre-render validator rejects these
+      // upstream; this is the belt to that pair of braces.
       .replace(/\*/g, '')
       .replace(/\n/g, '<br>');
 
@@ -56,64 +73,421 @@
     // largest text in the deck. A giant floating `*` shipped in a review set.
     const plain = (s) => esc(s).replace(/\*+/g, '').replace(/\n/g, '<br>');
 
-    document.getElementById('head').innerHTML =
-      D.kicker ? `<div class="kicker">${plain(D.kicker)}</div>` : '';
+    const has = (v) => v !== undefined && v !== null && v !== '' &&
+                       !(Array.isArray(v) && v.length === 0);
 
+    // ── artwork ──────────────────────────────────────────────────────────────
+    // `D.svg` is inline markup read out of our own site repo, so it is trusted
+    // — but "trusted" is a property of today's pipeline, not of the string, and
+    // a template that executes whatever it is handed is one refactor away from
+    // being wrong. Scripts and event handlers come out either way.
+    function artwork(cls) {
+      if (has(D.svg)) {
+        const clean = String(D.svg)
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+        return `<div class="${cls} art">${clean}</div>`;
+      }
+      if (has(D.image)) return `<img class="${cls}" src="${esc(D.image)}" alt="">`;
+      return '';
+    }
+
+    // ── charts ───────────────────────────────────────────────────────────────
+    // Inline SVG, no chart library and no fetch — consistent with everything
+    // else here being local at render time. A scheduled post must never fail
+    // because a CDN was slow.
+    //
+    // The numbers are grounded upstream: validators/slides.py lifts them out and
+    // wizcore's grounding gate checks them against the same corpora as prose. A
+    // chart is just a number with a bigger font.
+    function fmt(n, unit) {
+      const v = Number(n);
+      const s = Number.isInteger(v) ? String(v) : String(v);
+      return s + (unit || '');
+    }
+
+    function barChart(chart, opts) {
+      const series = chart.series || [];
+      const unit = chart.unit || '';
+      const max = Math.max(...series.map(s => Number(s.value) || 0), 1);
+      const highlightFirst = !!(opts && opts.highlightFirst);
+      const rows = series.map((s, i) => {
+        const pct = Math.max((Number(s.value) || 0) / max * 100, 1.5);
+        const strong = highlightFirst ? i === 0 : i === series.length - 1;
+        return `
+          <div class="bar-row">
+            <div class="bar-label">${plain(s.label)}</div>
+            <div class="bar-track">
+              <div class="bar-fill${strong ? ' strong' : ''}" style="width:${pct}%"></div>
+            </div>
+            <div class="bar-value">${plain(fmt(s.value, unit))}</div>
+          </div>`;
+      }).join('');
+      const src = has(chart.source)
+        ? `<div class="chart-source">${plain(chart.source)}</div>` : '';
+      return `<div class="chart bars">${rows}</div>${src}`;
+    }
+
+    function donutChart(chart) {
+      const pct = Math.max(0, Math.min(100, Number(chart.value) || 0));
+      const r = 42, C = 2 * Math.PI * r;
+      const dash = (pct / 100) * C;
+      return `
+        <div class="chart donut">
+          <svg viewBox="0 0 100 100" role="img">
+            <defs>
+              <linearGradient id="dg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#8ECAE6"/><stop offset="100%" stop-color="#219EBC"/>
+              </linearGradient>
+            </defs>
+            <circle class="donut-track" cx="50" cy="50" r="${r}" fill="none" stroke-width="11"/>
+            <circle cx="50" cy="50" r="${r}" fill="none" stroke="url(#dg)" stroke-width="11"
+                    stroke-linecap="round" stroke-dasharray="${dash} ${C - dash}"
+                    transform="rotate(-90 50 50)"/>
+          </svg>
+          <div class="donut-centre">
+            <div class="donut-value">${plain(fmt(pct, '%'))}</div>
+          </div>
+        </div>
+        <div class="donut-label">${plain(chart.label)}</div>
+        ${has(chart.source) ? `<div class="chart-source">${plain(chart.source)}</div>` : ''}`;
+    }
+
+    // ── shared fragments ─────────────────────────────────────────────────────
+    const h1     = (t) => `<h1 data-fit="block">${grad(t)}</h1>`;
+    const h2     = (t) => `<h2 data-fit="block">${grad(t)}</h2>`;
+    const body   = (t) => has(t) ? `<p class="body">${plain(t)}</p>` : '';
+    const note   = (t) => has(t) ? `<p class="note">${plain(t)}</p>` : '';
+    const pill   = (t) => has(t)
+      ? `<div class="pill-wrap"><span class="pill">${plain(t)}</span></div>` : '';
+    const bigNum = (v) => `<div class="metric grad" data-fit="line">${plain(v)}</div>`;
+
+    // ── the archetypes ───────────────────────────────────────────────────────
+    // Grouped by family, in the same order as campaign/visual.py so the two can
+    // be read side by side.
     const roles = {
-      // The only slide most people ever see. Six words maximum, enforced
-      // upstream by the platform validator, not here.
-      cover: () => `<h1>${grad(D.title)}</h1>` +
-                   (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
 
-      statement: () => `<h2>${grad(D.title)}</h2>` +
-                       (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
+      // ── openers ──
+      // The only slide most people ever see.
+      cover_bold:     () => h1(D.title) + body(D.body),
+      cover_question: () => h1(D.title) + body(D.body),
+      cover_stat:     () => `<div class="cover-stat">${bigNum(D.value)}` +
+                            `<div class="metric-label">${plain(D.label)}</div></div>` +
+                            (has(D.title) ? h2(D.title) : '') + body(D.body),
+      cover_mockup:   () => `<div class="pane pane-text">${h1(D.title)}</div>` +
+                            `<div class="pane pane-art">${artwork('shot')}</div>`,
 
-      // One number, enormous. Never two — a slide with two numbers has neither.
-      metric: () => `<div class="metric grad" id="metricval">${plain(D.value)}</div>` +
-                    `<div class="metric-label">${plain(D.label)}</div>` +
-                    (D.body ? `<p class="body">${plain(D.body)}</p>` : ''),
+      // ── data ──
+      // One number, enormous. Never two: a slide with two numbers has neither.
+      metric_hero: () => bigNum(D.value) +
+                         `<div class="metric-label">${plain(D.label)}</div>` + body(D.body),
 
-      steps: () => `<h2>${grad(D.title)}</h2><div class="steps">` +
+      stat_row: () => (has(D.title) ? h2(D.title) : '') + '<div class="stats">' +
+        (D.stats || []).map(s => `
+          <div class="stat">
+            <div class="stat-v grad" data-fit="line">${plain(s.value)}</div>
+            <div class="stat-l">${plain(s.label)}</div>
+          </div>`).join('') + '</div>',
+
+      bar_chart:      () => h2(D.title) + barChart(D.chart || {}, {}) + body(D.body),
+      // Ours first and highlighted — the contrast is the entire point of the
+      // archetype, and leaving the reader to work out which bar is which wastes it.
+      comparison_bar: () => h2(D.title) + barChart(D.chart || {}, {highlightFirst: true}) +
+                            note(D.note),
+      donut:          () => h2(D.title) + donutChart(D.chart || {}) + body(D.body),
+
+      // ── explainers ──
+      statement: () => h2(D.title) + body(D.body),
+
+      steps: () => h2(D.title) + '<div class="steps">' +
         (D.steps || []).map((s, i) => `
           <div class="step">
             <div class="step-n">${String(i + 1).padStart(2, '0')}</div>
             <div>
               <div class="step-t">${plain(s.title)}</div>
-              ${s.detail ? `<div class="step-d">${plain(s.detail)}</div>` : ''}
+              ${has(s.detail) ? `<div class="step-d">${plain(s.detail)}</div>` : ''}
             </div>
           </div>`).join('') + '</div>',
 
-      // A browser chrome around a real screenshot or a flat colour block.
+      checklist: () => h2(D.title) + '<div class="checks">' +
+        (D.items || []).map(t => `
+          <div class="check">
+            <svg class="tick" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12.5l5.2 5.2L20 7" fill="none" stroke="currentColor"
+                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="check-t">${plain(t)}</div>
+          </div>`).join('') + '</div>',
+
+      // The arrow trails its node rather than leading the next one. Five nodes
+      // wrap to two rows on a 4:5 canvas, and a leading arrow puts a dangling
+      // "→" at the start of row two, pointing at nothing.
+      flow_diagram: () => h2(D.title) + '<div class="flow">' +
+        (D.nodes || []).map((t, i, all) => `
+          <div class="flow-step">
+            <div class="flow-node">${plain(t)}</div>
+            ${i < all.length - 1 ? '<div class="flow-arrow">→</div>' : ''}
+          </div>`).join('') + '</div>' + body(D.body),
+
+      before_after: () => h2(D.title) + `
+        <div class="ba">
+          <div class="ba-panel ba-before">
+            <div class="ba-tag">${plain((D.before || {}).label || 'Before')}</div>
+            <div class="ba-text">${plain((D.before || {}).text)}</div>
+          </div>
+          <div class="ba-panel ba-after">
+            <div class="ba-tag">${plain((D.after || {}).label || 'After')}</div>
+            <div class="ba-text">${plain((D.after || {}).text)}</div>
+          </div>
+        </div>`,
+
+      myth_fact: () => `
+        <div class="mf">
+          <div class="mf-myth"><span class="mf-tag">Myth</span>
+            <div class="mf-text struck">${plain(D.myth)}</div></div>
+          <div class="mf-fact"><span class="mf-tag on">Actually</span>
+            <div class="mf-text">${grad(D.fact)}</div></div>
+        </div>`,
+
+      // ── proof ──
       // Depicting real software is what separates a portfolio from a template.
-      mockup: () => `<h2>${grad(D.title)}</h2>
+      // Browser chrome only around a landscape screen. A phone-shaped mockup
+      // inside a browser window says the wrong thing about what was built, so
+      // `decorate()` swaps the role and this falls through to the phone frame.
+      mockup_browser: () => h2(D.title) + `
         <div class="mockup">
           <div class="mockup-bar">
             <span class="dot" style="background:#FF5F57"></span>
             <span class="dot" style="background:#FEBC2E"></span>
             <span class="dot" style="background:#28C840"></span>
+            ${has(D.url) ? `<span class="mockup-url">${plain(D.url)}</span>` : ''}
           </div>
-          <img src="${esc(D.image)}" style="display:block;width:100%">
+          ${artwork('shot')}
         </div>`,
 
-      // A client's words, set as a sentence rather than a quote graphic.
-      // Quote-card graphics read as stock; a sentence reads as a person.
-      quote: () => `<h2>${grad('"' + D.quote + '"')}</h2>` +
-                   `<p class="body">${plain(D.attribution)}</p>`,
+      mockup_phone: () => `<div class="pane pane-text">${h2(D.title)}</div>
+        <div class="pane pane-art"><div class="phone"><div class="phone-notch"></div>
+        ${artwork('shot')}</div></div>`,
 
-      cta: () => `<h1>${grad(D.title)}</h1>` +
-                 (D.body ? `<p class="body">${plain(D.body)}</p>` : '') +
-                 (D.pill ? `<div style="margin-top:calc(var(--w)*0.05)"><span class="pill">${plain(D.pill)}</span></div>` : ''),
+      mockup_phone: () => `<div class="pane pane-text">${h2(D.title)}</div>
+        <div class="pane pane-art"><div class="phone"><div class="phone-notch"></div>
+        ${artwork('shot')}</div></div>`,
+
+      graphic_embed: () => (has(D.title) ? h2(D.title) : '') +
+        `<div class="embed">${artwork('shot')}</div>` +
+        (has(D.caption) ? `<div class="embed-cap">${plain(D.caption)}</div>` : ''),
+
+      // A client's words set as a sentence rather than a quote graphic.
+      // Quote-card graphics read as stock; a sentence reads as a person.
+      quote: () => `<div class="quote-mark">&ldquo;</div>` +
+                   `<h2 data-fit="block">${grad(D.quote)}</h2>` +
+                   `<p class="attribution">${plain(D.attribution)}</p>`,
+
+      // ── closers ──
+      cta_pill:  () => h1(D.title) + body(D.body) + pill(D.pill),
+      cta_split: () => `<div class="pane pane-text">${h1(D.title)}${body(D.body)}</div>` +
+                       `<div class="pane pane-cta">${pill(D.pill)}${note(D.note)}</div>`,
     };
 
-    document.getElementById('main').innerHTML = (roles[D.role] || roles.statement)();
+    // The seven original role names, resolved the same way campaign/visual.py
+    // resolves them. Kept in both places on purpose: a deck rendered from an
+    // older payload must produce what it always produced.
+    const LEGACY = {cover: 'cover_bold', metric: 'metric_hero',
+                    mockup: 'mockup_browser', cta: 'cta_pill'};
+    const role = LEGACY[D.role] || D.role || 'statement';
+    slide.dataset.role = role;
+
+    document.getElementById('head').innerHTML =
+      D.kicker ? `<div class="kicker">${plain(D.kicker)}</div>` : '';
+
+    document.getElementById('main').innerHTML = (roles[role] || roles.statement)();
+
+    // In full_bleed the artwork is the background, not content. Moving it into
+    // its own layer is what keeps #main measuring only the text — an absolutely
+    // positioned child still counts toward its container's scroll height, so
+    // leaving it in place made every full-bleed slide report an overflow it did
+    // not have.
+    if (slide.dataset.layout === 'full_bleed') {
+      const art = document.querySelector('#main .pane-art, #main .embed');
+      if (art) {
+        document.getElementById('bleed').appendChild(art);
+        // Cover, not contain. A 16:10 mockup on a 4:5 canvas letterboxes by
+        // default, and the result was artwork jammed against the top with a
+        // third of the slide left as flat colour. `slice` fills the frame and
+        // crops the edges, which is what "full bleed" means.
+        const svg = art.querySelector('svg');
+        if (svg) svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+      }
+    }
 
     document.getElementById('foot').innerHTML =
       `<div class="wordmark"><span class="wiz">wiz</span><span class="codes">codes.site</span></div>` +
-      (D.index ? `<div class="idx">${esc(D.index)}</div>` : '<div></div>');
+      (D.index ? `<div class="idx">${plain(D.index)}</div>` : '<div></div>');
 
-    // The renderer waits on this flag rather than a fixed sleep, so a slow font
-    // decode cannot produce a screenshot of unstyled text.
-    document.fonts.ready.then(() => { window.__ready = true; });
+    // ── fit ──────────────────────────────────────────────────────────────────
+    // CONTENT_SYSTEM.md §1.2: a metric value long enough to wrap breaks the one
+    // thing that slide does. The validator rejects copy that would need this,
+    // so in the normal case nothing below changes anything — it is the net under
+    // the gate, not a substitute for it.
+    //
+    // Shrinking happens through a single `--fit` multiplier on the whole type
+    // scale rather than per element. Reducing one heading in isolation destroys
+    // the size relationships the design is built out of; scaling everything
+    // together keeps a shrunken slide looking like the same design, smaller.
+    // It grows as well as shrinks, and the growing half is the more important
+    // one. CONTENT_SYSTEM.md §1.3: *every slide is vertically centred, so short
+    // slides look unfinished.* A three-line statement centred on a 1080x1350
+    // canvas occupies the middle 40% and reads as a template with a slot nobody
+    // filled — and no amount of choosing layouts fixes it, because the problem
+    // is that the type was sized for the longest copy the slide might carry.
+    //
+    // Sizing to the copy that is actually there means a short headline lands
+    // large and certain, a long one lands smaller, and both fill the frame.
+    const MIN_FIT = 0.62, MAX_FIT = 1.50, FILL = 0.94;
+
+    // Openers and closers are bottom-weighted on purpose — that is the site's
+    // hero, and the air above a six-word headline is the composition, not a
+    // gap. Measuring them for "fill" flags the best slides in the deck, so the
+    // emptiness check applies to content families only.
+    const CONTENT_FAMILY = ['data', 'explainer', 'proof'].includes(D.family);
+
+    function overflowsY(el) { return el.scrollHeight > el.clientHeight + 1; }
+    function overflowsX(el) { return el.scrollWidth  > el.clientWidth  + 1; }
+
+    // How much vertical space the content actually occupies. `scrollHeight` is
+    // useless here: for a flex column shorter than its container it equals
+    // clientHeight, so it can tell you about overflow but never about slack.
+    function contentHeight(main) {
+      const kids = [...main.children].filter(k => k.getBoundingClientRect().height > 0);
+      if (!kids.length) return 0;
+      const rects = kids.map(k => k.getBoundingClientRect());
+      return Math.max(...rects.map(r => r.bottom)) - Math.min(...rects.map(r => r.top));
+    }
+
+    function fit() {
+      const main = document.getElementById('main');
+      const round = (v) => Math.round(v * 100) / 100;
+
+      // 1. Single-line elements first: a metric or a stat value must never wrap,
+      //    so each gets its own multiplier before the global pass runs.
+      const lines = [...document.querySelectorAll('[data-fit="line"]')];
+      for (const el of lines) {
+        let v = 1;
+        while (overflowsX(el) && v > MIN_FIT) {
+          v = round(v - 0.04);
+          el.style.setProperty('--vfit', v);
+        }
+      }
+
+      // 2. Then the slide as a whole.
+      // #main itself is checked for horizontal overflow, not only the fitted
+      // headings. A `split_5050` layout whose archetype emits no panes puts a
+      // whole card row beside the title with nothing constraining its width —
+      // the panel ran clean off the right edge of a review render, and every
+      // element in it was individually within its own box.
+      const tooBig = () =>
+        overflowsY(main) || overflowsX(main) ||
+        [...main.querySelectorAll('[data-fit]')].some(overflowsX);
+      const apply = (v) => slide.style.setProperty('--fit', v);
+
+      let f = 1;
+      if (tooBig()) {
+        // Shrink. Vertical overflow is the common case: a body paragraph one
+        // line too long pushes the footer off-canvas, and the footer is the
+        // wordmark.
+        while (tooBig() && f > MIN_FIT) { f = round(f - 0.03); apply(f); }
+      } else {
+        // Grow into the slack, stopping one step before anything breaks.
+        while (f < MAX_FIT) {
+          const next = round(f + 0.03);
+          apply(next);
+          if (tooBig() || contentHeight(main) > main.clientHeight * FILL) { apply(f); break; }
+          f = next;
+        }
+      }
+      return {
+        fit: f,
+        fill: main.clientHeight ? round(contentHeight(main) / main.clientHeight) : 0,
+        lines: lines.map(el => Number(el.style.getPropertyValue('--vfit') || 1)),
+      };
+    }
+
+    // ── audit ────────────────────────────────────────────────────────────────
+    // Measured in the DOM rather than by diffing pixels afterwards. The defects
+    // worth catching — text past the padding, a still-overflowing box, an
+    // archetype that drew nothing — are all exact here and guesswork in a
+    // bitmap. tools/render.py reads this and can refuse to write the PNG.
+    function audit(fitResult) {
+      const main = document.getElementById('main');
+      const pad = parseFloat(getComputedStyle(slide).paddingLeft);
+      const box = slide.getBoundingClientRect();
+      const errors = [], warnings = [];
+
+      if (!main.textContent.trim() && !main.querySelector('svg, img'))
+        errors.push('the archetype drew nothing');
+
+      if (overflowsY(main)) errors.push('content overflows the slide vertically');
+      if (overflowsX(main)) errors.push('content overflows the slide horizontally');
+
+      // A missing field concatenated into a string. `'"' + D.quote + '"'` with
+      // no quote renders the word `undefined` at 67px, and a review set shipped
+      // exactly that: a testimonial slide reading "undefined" under a real
+      // client's name. Nothing upstream sees it because the FIELD is absent,
+      // not wrong.
+      const junk = main.textContent.match(/\b(undefined|null|NaN|\[object Object\])\b/);
+      if (junk) errors.push(`the word "${junk[1]}" is on the canvas - a field was missing`);
+
+      // Content running under the wordmark. #main and .foot are siblings, so
+      // this needs a real overlap test rather than an overflow one: a shadowed
+      // mockup can extend past its own box and sit on the footer while every
+      // element is individually inside its container.
+      const footTop = document.getElementById('foot').getBoundingClientRect().top;
+
+      // Every box that carries text or is a card, not a hand-listed selection.
+      // The first version listed selectors and missed `.ba-panel`, which is
+      // exactly the element that ran off the canvas.
+      for (const el of main.querySelectorAll(
+             'h1, h2, p, .metric, .stat, .step, .check, .flow-node, ' +
+             '.ba-panel, .mf-text, .bar-row, .donut, .embed, .pill, .attribution')) {
+        if (!el.textContent.trim() && !el.querySelector('svg, img')) continue;
+        const r = el.getBoundingClientRect();
+        // 2px of tolerance: sub-pixel layout routinely lands a glyph box a
+        // fraction outside its padding, and flagging that would make the audit
+        // noise, which is how a real overflow gets ignored.
+        if (r.left < box.left + pad - 2 || r.right > box.right - pad + 2)
+          errors.push(`"${el.textContent.trim().slice(0, 40)}" sits outside the margin`);
+        if (r.bottom > footTop + 2)
+          errors.push(`"${el.textContent.trim().slice(0, 40) || el.className}" runs under the wordmark`);
+      }
+
+      if (fitResult.fit <= MIN_FIT)
+        errors.push(`could not fit even at ${MIN_FIT}x - the copy is far too long`);
+      else if (fitResult.fit < 1)
+        warnings.push(`type scaled to ${fitResult.fit}x to fit`);
+      for (const v of fitResult.lines)
+        if (v < 1) warnings.push(`a single-line value scaled to ${v}x`);
+
+      // The slide that started this: a content slide floating in the middle of
+      // the canvas with a third empty above and below. If growth could not
+      // close that gap, the composition is wrong and no copy edit fixes it.
+      // full_bleed is excluded: the artwork fills the canvas from its own
+      // layer, so #main legitimately holds nothing but a headline.
+      if (CONTENT_FAMILY && slide.dataset.layout !== 'full_bleed'
+          && fitResult.fill && fitResult.fill < 0.45)
+        warnings.push(`content fills only ${Math.round(fitResult.fill * 100)}% of the canvas`);
+
+      return {role, layout: slide.dataset.layout, theme: slide.dataset.theme,
+              fit: fitResult.fit, fill: fitResult.fill, errors, warnings,
+              // What is literally on the canvas. Lets a test assert that a
+              // stray asterisk or an unrendered `**bold**` never made it here,
+              // which is otherwise only checkable by looking at the PNG.
+              text: main.textContent.replace(/\s+/g, ' ').trim()};
+    }
+
+    document.fonts.ready.then(() => {
+      window.__audit = audit(fit());
+      window.__ready = true;
+    });
   </script>
 </body>
 </html>

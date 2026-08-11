@@ -29,7 +29,13 @@ _THROAT_CLEAR = re.compile(
 )
 
 
-def check(text: str, min_variance: float = 4.0) -> list[str]:
+# 0.18 is where genuinely flat prose sits and real writing does not. Measured:
+#
+#   [4, 8, 6, 6]      24%   "Nine no-shows a week. That is the number the owner
+#                            gave us. We looked at the booking page..."  -> good
+#   [14, 15, 16, 15]   5%   near-identical lengths                       -> flat
+#   [12, 12, 12, 12]   0%   the real signal                              -> flat
+def check(text: str, min_variance: float = 4.0, min_variation: float = 0.18) -> list[str]:
     reasons: list[str] = []
     lowered = text.lower()
 
@@ -54,10 +60,30 @@ def check(text: str, min_variance: float = 4.0) -> list[str]:
     if len(sentences) >= 4:
         lengths = [len(s.split()) for s in sentences]
         spread = statistics.pstdev(lengths)
-        if spread < min_variance:
+        mean = statistics.fmean(lengths)
+        # Measured RELATIVE to the mean, not as an absolute word count.
+        #
+        # A flat "stdev >= 4 words" is right for a 200-word LinkedIn post and
+        # wrong for a 60-word Facebook one, where it demands a fourteen-word
+        # sentence to offset a four-word one. Measured against three real
+        # rejections, it was failing copy like:
+        #
+        #     "The booking page worked. Nobody used it. Six seconds to load on
+        #      a phone. No reminder."          -> stdev 1.9, rejected
+        #
+        # which is the exact voice CAMPAIGN.md §3 asks for. Meanwhile it passed
+        # nothing it should have caught: uniform prose has a low coefficient of
+        # variation at every length, because that is what uniform means.
+        #
+        # The absolute spread stays as an escape hatch — long prose with genuine
+        # variety can have a modest CV and still obviously vary.
+        variation = spread / mean if mean else 0.0
+        if variation < min_variation and spread < min_variance:
             reasons.append(
-                f"sentence lengths are too uniform (stdev {spread:.1f} < {min_variance}) - "
-                "uniform sentence length is the strongest machine-written signal"
+                f"sentence lengths are too uniform (varies {variation:.0%} around a "
+                f"{mean:.0f}-word average, wanted {min_variation:.0%}) - uniform "
+                "sentence length is the strongest machine-written signal. Write a "
+                "four-word sentence, then a longer one that earns its length."
             )
     return reasons
 

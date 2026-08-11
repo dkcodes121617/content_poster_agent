@@ -39,24 +39,33 @@ sys.path.insert(0, str(AGENT_ROOT))
 #   proof/client_voice -> must cite a REAL project or testimonial
 #   teach/pov/process  -> no external facts, pure voice
 #   timely             -> external facts, must be source-grounded
-SWEEP: list[tuple[str, str, str, int]] = [
-    ("instagram", "proof", "carousel", 6),
-    ("instagram", "teach", "carousel", 5),
-    ("facebook", "process", "single", 0),
-    ("facebook", "client_voice", "single", 0),
-    ("threads", "pov", "text", 0),
-    ("threads", "teach", "text", 0),
-    ("linkedin", "proof", "carousel", 8),
-    ("linkedin", "pov", "text", 0),
-    ("pinterest", "proof", "pin", 0),
-    ("x", "teach", "thread", 0),
-    ("x", "pov", "thread", 0),
+# (platform, pillar, format, slides, IST hour)
+#
+# The hour is not decoration: it is what decides which region a post is written
+# for (§4), so a sweep with everything at one hour would review three regions'
+# worth of system against one region's output. These are the real calendar
+# hours from campaign/calendar.py.
+SWEEP: list[tuple[str, str, str, int, int]] = [
+    ("instagram", "proof", "carousel", 6, 11),
+    ("instagram", "teach", "carousel", 5, 11),
+    ("facebook", "process", "single", 0, 20),
+    ("facebook", "client_voice", "single", 0, 20),
+    ("threads", "pov", "text", 0, 21),
+    ("threads", "teach", "text", 0, 21),
+    ("linkedin", "proof", "carousel", 8, 18),
+    ("linkedin", "pov", "text", 0, 18),
+    ("pinterest", "proof", "pin", 0, 15),
+    ("x", "teach", "thread", 0, 19),
+    ("x", "pov", "thread", 0, 19),
+    # A second instagram deck at a UK hour, so a reviewer sees the geo rotation
+    # doing something rather than taking it on faith.
+    ("instagram", "teach", "carousel", 6, 14),
     # Timely exercises the whole trend path: a verified angle, its captured
     # sources through the grounding gate, and a citation bound for a first
     # comment. Skips cleanly when no angle is ready, which is honest rather
     # than a failure — most hours genuinely have nothing worth reacting to.
-    ("threads", "timely", "text", 0),
-    ("linkedin", "timely", "text", 0),
+    ("threads", "timely", "text", 0, 21),
+    ("linkedin", "timely", "text", 0, 18),
 ]
 QUICK = [SWEEP[0], SWEEP[2], SWEEP[4], SWEEP[8], SWEEP[9]]
 
@@ -66,8 +75,12 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
     from wizcore.facts.snapshot import build_snapshot
     from wizcore.llm.client import LLMClient, extract_json
 
+    from campaign import deck as deck_mod
+    from campaign import keywords, regions
+    from campaign.calendar import today_ist
     from graph.nodes import _slide_text, _timely_context
     from imaging import render as render_mod
+    from imaging.graphics import GraphicsLibrary
     from prompts.library import post_system_prompt, post_user_prompt
     from validators import validate
 
@@ -77,19 +90,35 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
     )
     snapshot = build_snapshot(reader)
     facts = snapshot.to_prompt_block(include_testimonials=True)
+    stats = snapshot.stats_block()
+    library = GraphicsLibrary(reader) if config.site_artwork else None
     client = LLMClient(model=config.voice_model)
+    today = today_ist(config.display_tz)
 
     results: list[dict] = []
     history: list[str] = []
+    # A ledger that lives only for this run. The showcase must not write to
+    # content.visual_history — a review sweep is not a fortnight of publishing,
+    # and recording it there would make the real rotation think it had already
+    # used six recipes today. Passed to `plan()` explicitly, so the sweep still
+    # rotates within itself and a reviewer sees variety rather than six
+    # identical decks.
+    ledger: dict[str, list[dict]] = {}
 
-    for index, (platform, pillar, fmt, slides) in enumerate(cases, 1):
+    for index, (platform, pillar, fmt, slides, hour) in enumerate(cases, 1):
         print(f"[{index}/{len(cases)}] {platform}/{pillar} ({fmt}) ...", flush=True)
         started = time.time()
+
+        deck = deck_mod.plan(
+            config, platform=platform, pillar=pillar, slides=slides, hour_ist=hour,
+            snapshot=snapshot, library=library, today=today,
+            history=ledger.get(platform, []),
+        )
 
         # A timely case needs a verified angle and its captured sources; without
         # them the grounding gate rejects it, correctly.
         angle_row, sources, extra = (None, [], "")
-        if pillar == "timely":
+        if deck.pillar == "timely":
             class _Slot:  # minimal shim; _timely_context only reads these two
                 pass
             slot = _Slot()
@@ -108,8 +137,15 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
         for attempt in range(1, config.max_regenerations + 2):
             try:
                 raw = client.complete(
-                    system=post_system_prompt(facts),
-                    user=post_user_prompt(pillar, platform, fmt, slides, extra + note),
+                    system=post_system_prompt(facts, stats),
+                    user=post_user_prompt(
+                        deck.pillar, platform, fmt, slides, extra + note,
+                        archetypes=deck.archetypes,
+                        region_brief=regions.brief(deck.region) if config.geo_targeting else "",
+                        phrase_brief=(
+                            keywords.brief(deck.phrase, platform) if deck.phrase else ""
+                        ),
+                    ),
                     max_tokens=2000, temperature=0.85,
                 )
             except Exception as e:
@@ -124,7 +160,14 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
 
             caption = str(parsed.get("caption") or "").strip()
             hashtags = [str(h) for h in (parsed.get("hashtags") or []) if str(h).strip()]
-            slide_list = parsed.get("slides") or []
+            # The same decoration the write node applies. Reviewing an
+            # undecorated deck would be reviewing something that never publishes.
+            slide_list = deck_mod.decorate(
+                parsed.get("slides") or [], deck, library=library, snapshot=snapshot,
+            )
+            regional = deck_mod.hashtags(config, deck, len(hashtags), today)
+            if regional:
+                hashtags = regional
             image_count = (
                 len(slide_list) if fmt == "carousel"
                 else 0 if platform in ("threads", "x", "youtube") else 1
@@ -133,7 +176,10 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
                 caption=caption, hashtags=hashtags, image_count=image_count,
                 platform_name=platform, snapshot=snapshot, history=history,
                 slides_text=" ".join(_slide_text(s) for s in slide_list),
+                slides=slide_list,
                 repetition_threshold=config.repetition_threshold, sources=sources,
+                phrase=deck.phrase, seo_required=config.seo_phrase_required,
+                pillar=deck.pillar,
             )
             attempts.append({
                 "attempt": attempt, "chars": len(caption),
@@ -158,21 +204,44 @@ def build(config, cases: list, out_dir: Path) -> list[dict]:
             "angle": (angle_row or {}).get("headline"),
             "citation": (angle_row or {}).get("citation"),
             "sources": len(sources),
+            "recipe": deck.recipe,
+            "archetypes": deck.archetypes,
+            "layouts": deck.layouts,
+            "region": deck.region.code,
+            "phase": deck.phase_name,
+            "substituted_from": deck.substituted_from,
         }
+        ledger.setdefault(platform, []).insert(0, {
+            "recipe": deck.recipe, "archetypes": deck.archetypes,
+            "layouts": deck.layouts, "theme": "", "posted_at": datetime.now().astimezone(),
+        })
         if not accepted:
             record["failed"] = "no draft passed the validators"
             results.append(record)
             continue
 
         record.update(accepted)
-        record["images"] = _render(config, render_mod, accepted, platform, pillar, fmt, out_dir)
+        audits: list[dict] = []
+        record["images"] = _render(
+            config, render_mod, accepted, platform, pillar, fmt, out_dir, audits
+        )
+        # The DOM audit, surfaced next to the picture. A slide that had to
+        # shrink or that fills a quarter of the canvas looks fine at thumbnail
+        # size and wrong in a feed, which is exactly the class of defect the
+        # first review sets shipped.
+        record["audit"] = [
+            {"slide": a.get("slide"), "role": a.get("role"), "layout": a.get("layout"),
+             "fit": a.get("fit"), "fill": a.get("fill"),
+             "errors": a.get("errors") or [], "warnings": a.get("warnings") or []}
+            for a in audits
+        ]
         results.append(record)
 
     return results
 
 
 def _render(config, render_mod, draft: dict, platform: str, pillar: str,
-            fmt: str, out_dir: Path) -> list[str]:
+            fmt: str, out_dir: Path, audits: list[dict] | None = None) -> list[str]:
     """Render real images and copy them into the review folder."""
     from graph.nodes import _fallback_slide
     from platforms import Draft
@@ -184,7 +253,12 @@ def _render(config, render_mod, draft: dict, platform: str, pillar: str,
                               caption=draft["caption"]))
     ]
     try:
-        paths = render_mod.render_slides(slides, platform, f"{platform}_{pillar}")
+        # Not strict: a review harness that refuses to write the picture of the
+        # problem is a review harness that cannot show you the problem. The
+        # audit is reported beside the image instead.
+        paths = render_mod.render_slides(
+            slides, platform, f"{platform}_{pillar}", strict=False, audits=audits
+        )
     except Exception as e:
         print(f"    render failed: {e}")
         return []
@@ -226,6 +300,29 @@ def write_index(results: list[dict], out_dir: Path, config) -> None:
             f"<span class='pill warn'>{tries} attempts</span>" if tries > 1
             else "<span class='pill ok'>first try</span>"
         )
+        # What the rotation actually decided, so "is this varied" is readable
+        # rather than a feeling about a page of thumbnails.
+        design = ""
+        if r.get("recipe"):
+            shape = " → ".join(r.get("archetypes") or [])
+            sub = (
+                f" · phase {r['phase']} substituted {r['substituted_from']}"
+                if r.get("substituted_from") else f" · phase {r.get('phase', '')}"
+            )
+            design = (
+                f"<p class='design'><b>{html.escape(r['recipe'])}</b> · "
+                f"{html.escape(r.get('region', ''))}{html.escape(sub)}<br>"
+                f"<span class='shape'>{html.escape(shape)}</span></p>"
+            )
+        notes = []
+        for a in r.get("audit") or []:
+            for e in a.get("errors", []):
+                notes.append(f"<li class='bad'>slide {a['slide']} ({a['role']}): "
+                             f"{html.escape(str(e))}</li>")
+            for w in a.get("warnings", []):
+                notes.append(f"<li>slide {a['slide']} ({a['role']}): "
+                             f"{html.escape(str(w))}</li>")
+        audit_block = f"<ul class='audit'>{''.join(notes)}</ul>" if notes else ""
         cite = (
             f"<p class='cite'>Source (posted as first comment): "
             f"{html.escape(r['citation'] or '')}</p>" if r.get("citation") else ""
@@ -238,16 +335,27 @@ def write_index(results: list[dict], out_dir: Path, config) -> None:
 <section class='card'>
   <h2>{html.escape(head)} {retry_note}
       <span class='pill'>{r.get('chars', len(r.get('caption','')))} chars</span></h2>
+  {design}
   {angle}
   <pre class='caption'>{html.escape(r.get('caption',''))}</pre>
   <p class='tags'>{html.escape(tags)}</p>
   {cite}
   <div class='shots'>{imgs}</div>
+  {audit_block}
 </section>""")
 
     passed = sum(1 for r in results if r.get("caption"))
     first_try = sum(1 for r in results if r.get("caption") and len(r["attempts"]) == 1)
     total_imgs = sum(len(r.get("images", [])) for r in results)
+    recipes_used = {r["recipe"] for r in results if r.get("recipe")}
+    regions_used = {r["region"] for r in results if r.get("region")}
+    audit_errors = sum(
+        len(a.get("errors", [])) for r in results for a in (r.get("audit") or [])
+    )
+    variety = (
+        f"{len(recipes_used)} recipes · {len(regions_used)} regions · "
+        f"{audit_errors} render audit error(s)"
+    )
 
     (out_dir / "index.html").write_text(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -271,13 +379,18 @@ h2{{font-size:1rem;margin:0 0 10px;letter-spacing:.02em;text-transform:uppercase
 .caption{{white-space:pre-wrap;font:inherit;margin:0 0 10px;background:transparent}}
 .tags{{color:var(--accent);margin:0 0 6px;font-size:.9rem}}
 .cite,.angle{{color:var(--muted);font-size:.85rem;margin:4px 0}}
+.design{{font-size:.85rem;margin:0 0 10px;color:var(--muted)}}
+.design b{{color:var(--accent)}}
+.shape{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem}}
+.audit{{margin:10px 0 0;padding-left:18px;font-size:.8rem;color:var(--muted)}}
+.audit .bad{{color:#f97066}}
 .shots{{display:flex;gap:10px;overflow-x:auto;padding-top:10px}}
 .shots img{{height:300px;border-radius:10px;border:1px solid var(--line);flex:0 0 auto}}
 .muted{{color:var(--muted)}}
 </style></head><body>
 <h1>WizCodes — content review</h1>
-<p class="sum">{datetime.now(ZoneInfo(config.display_tz)):%d %b %Y %H:%M} · {passed}/{len(results)} passed all four validators ·
-{first_try} on the first attempt · {total_imgs} images rendered ·
+<p class="sum">{datetime.now(ZoneInfo(config.display_tz)):%d %b %Y %H:%M} · {passed}/{len(results)} passed all six validators ·
+{first_try} on the first attempt · {total_imgs} images rendered · {variety} ·
 model {html.escape(config.voice_model)} · <strong>nothing was published</strong></p>
 {''.join(blocks)}
 </body></html>""", encoding="utf-8")

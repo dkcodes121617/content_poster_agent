@@ -49,18 +49,30 @@ def _renderer():
     return module
 
 
-def render_slides(slides: list[dict], platform: str, prefix: str) -> list[Path]:
+def render_slides(
+    slides: list[dict],
+    platform: str,
+    prefix: str,
+    *,
+    strict: bool = True,
+    audits: list[dict] | None = None,
+) -> list[Path]:
     """Render slides for one platform. Returns the written PNG paths.
 
     Raises rather than returning an empty list: a publish step that silently
     posted a carousel with no images would be worse than a failed run, and the
     caller treats a raised error as "skip this platform, report it".
+
+    `strict` defaults to True, which is the publishing behaviour: the DOM audit
+    refusing a slide is a raised error, not a warning printed into a log nobody
+    reads. `tools/showcase.py` passes False, because a review harness that
+    refuses to write the picture of the problem cannot show you the problem.
     """
     if not slides:
         return []
     module = _renderer()
     size = PLATFORM_SIZE.get(platform, "instagram_portrait")
-    paths = module.render(slides, size, prefix)
+    paths = module.render(slides, size, prefix, strict=strict, audits=audits)
     if not paths:
         raise RuntimeError(f"renderer produced no images for {platform}")
     log.info("rendered %d slide(s) at %s for %s", len(paths), size, platform)

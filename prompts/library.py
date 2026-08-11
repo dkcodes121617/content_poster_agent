@@ -47,6 +47,54 @@ Never invent a client, a number, a testimonial, a project or a result. Every
 figure and every name must appear in the facts provided. This is checked
 automatically after you write, and anything that fails is discarded."""
 
+# The two claims that are never publishable, stated as what a good answer looks
+# like rather than as a prohibition — the proxy's injection guard rejects
+# override-style phrasing. validators/claims.py enforces this regardless of
+# what the model does with it, and it is repeated here so the usual case is a
+# first draft that passes rather than a regeneration.
+CLAIMS_RULES = """\
+Two things never appear, in any post, in any form:
+
+  - **How long anything takes us.** No "in 48 hours", no "within two weeks", no
+    "same-day turnaround", no "ready by Friday". How long a build takes depends
+    entirely on the requirements, so any number attached to delivery is a
+    promise nobody has made. Describe the process without a duration: "a working
+    prototype before any money changes hands" says everything the timeline would
+    have, and is true.
+
+  - **What we charge.** No figure, no range, no "starting at". Our cost depends
+    on the requirements.
+
+Both of those are about NUMBERS AND DURATIONS, not about the subject. Compare
+our approach with how others price and deliver as much as you like. These are
+all good, and the second half is where the useful writing lives:
+
+  - "We build a working prototype before any money changes hands." (the offer -
+    always fine, it has no figure in it)
+  - "Most agencies bill discovery as a paid phase before anything gets built."
+  - "Agencies quote for a specification. We build the thing and let you look."
+  - "CuePilot answers in under 200ms." (a PERFORMANCE figure, not a delivery
+    time - these are the best sentences in any proof post, use them)
+
+ONE THING TO KNOW ABOUT COMPARISONS, because it is easy to get wrong:
+
+Describe how the industry works, not what it charges in figures. "Typical agency
+retainers run into five figures a month" reads well and is the kind of sentence
+that gets a post rejected, because a number about someone ELSE'S business needs
+a source we have actually fetched, and an evergreen post has none. The same
+point without a figure is publishable and just as strong:
+
+  instead of  "agencies charge £15,000 for a marketing site"
+  write       "agencies quote a fixed price against a specification you have to
+               write first, and changing it costs extra"
+
+  instead of  "80% of projects run over budget"
+  write       "the overrun conversation happens after the money is spent"
+
+The only figures you may state are ones about WizCodes that appear in the facts
+below, and — on a timely post only — figures from the verified sources supplied
+with it."""
+
 PILLAR_BRIEFS = {
     "proof": "Tell one real project as a story: the constraint the client had, "
              "what was built, and the measurable outcome. Name the project.",
@@ -137,25 +185,139 @@ PLATFORM_BRIEFS = {
                "Write what is said, not shot directions.",
 }
 
-CAROUSEL_ROLES = """\
-A carousel is a sequence of slides, each with a role:
-
-  cover      - dark. Six words maximum. The only slide most people see.
-  statement  - one idea, light background.
-  metric     - one number, enormous. Never two: a slide with two numbers has neither.
-  steps      - three or four numbered cards.
-  mockup     - browser chrome around a real screenshot.
-  quote      - a client's words as a sentence, not a quote-card graphic.
-  cta        - dark. Closes the carousel.
-
-Open dark, run light through the middle, close dark. That rhythm is what makes
-eight slides read as one piece.
-
+EMPHASIS_RULE = """\
 Mark the phrase that should carry visual emphasis with *asterisks*. The template
-turns that into the brand's gradient; the writing never mentions colour."""
+turns that into the brand's gradient; the writing never mentions colour. Open
+and close every emphasis - a stray asterisk loses the emphasis entirely.
+
+Slides are PLAIN TEXT otherwise. No backticks, no markdown links, no headings,
+no bullets, no HTML. Those characters reach the image and get set at 99 pixels."""
 
 
-def post_system_prompt(facts_block: str) -> str:
+# Structured fields are lists or objects, so a character budget on the field
+# itself would be meaningless. Their per-entry limits are described instead.
+_STRUCTURED = {
+    "steps": "3-4 objects, each {{title (max {step_title}), detail (max {step_detail})}}",
+    "items": "3-5 strings, each max {item} chars",
+    "nodes": "3-5 strings, each max {node} chars — two or three words",
+    "stats": "exactly 3 objects, each {{value (max {stat_value}), label (max {stat_label})}}",
+    "chart": "an object — see the JSON below. Series labels max {series_label} chars",
+    "before": "an object {{label, text (max {body})}}",
+    "after": "an object {{label, text (max {body})}}",
+}
+
+
+def _field_spec(field: str, budgets: dict[str, int]) -> str:
+    """One field, with the limit the validator will actually apply.
+
+    The exact character budget, not a word-count guess. Measured across three
+    review runs: "keep titles under about 12 words" produced 43-, 44- and
+    55-character cover titles against a 42 budget, every one a regeneration. A
+    stated number is a constraint the writer can satisfy on the first attempt.
+    """
+    if field in _STRUCTURED:
+        return f"{field}: " + _STRUCTURED[field].format(**budgets)
+    budget = budgets.get(field)
+    return f"{field} (max {budget} chars)" if budget else field
+
+
+def carousel_spec(archetypes: list[str], budgets_note: bool = True) -> str:
+    """The exact deck to write, generated from the archetype registry.
+
+    Generated rather than written out, because a hand-maintained list of roles
+    in a prompt is a second source of truth that drifts from
+    `campaign/visual.py` the first time an archetype changes — and it drifts
+    silently, producing JSON the validator then rejects for reasons the writer
+    was never told.
+
+    The deck's *shape* is chosen by the rotation ledger before this is called.
+    The writer is told which archetypes to fill, not asked to pick them: asking
+    is what produced one deck shape every day for a month.
+    """
+    from campaign import visual
+
+    lines = [
+        (
+            f"This deck is {len(archetypes)} slides. Each slide has a fixed role, in "
+            "this order, and the roles are not interchangeable:"
+        ),
+        "",
+    ]
+    for i, name in enumerate(archetypes, 1):
+        a = visual.resolve(name)
+        if not a:
+            continue
+        budgets = a.budgets()
+        required = ", ".join(_field_spec(f, budgets) for f in a.required)
+        optional = (
+            "\n     optional: " + ", ".join(_field_spec(f, budgets) for f in a.optional)
+            if a.optional else ""
+        )
+        lines.append(f"  {i}. {a.name} - {a.brief}")
+        lines.append(f"     REQUIRED, every one of these or the slide is rejected: {required}"
+                     f"{optional}")
+    lines.append("")
+    lines.append(_SHAPES_FOR(archetypes))
+    if budgets_note:
+        lines.append("")
+        lines.append(
+            "Those character limits are hard. Each field is set in large type on an "
+            "image, and one that has to be shrunk to fit no longer looks like the "
+            "same design - so an over-long field is rejected rather than squeezed."
+        )
+    lines.append("")
+    lines.append(EMPHASIS_RULE)
+    return "\n".join(lines)
+
+
+def _SHAPES_FOR(archetypes: list[str]) -> str:
+    """A worked JSON example for exactly the archetypes in this deck."""
+    from campaign import visual
+
+    examples = {
+        "cover_bold": '{"role":"cover_bold","kicker":"Case study","title":"Nine no-shows a week, *gone*."}',
+        "cover_question": '{"role":"cover_question","kicker":"Buying software","title":"What does a website *actually* cost?"}',
+        "cover_stat": '{"role":"cover_stat","kicker":"Reach","value":"11","label":"countries with a live build"}',
+        "cover_mockup": '{"role":"cover_mockup","kicker":"Work","title":"Shift planning for *three clinics*."}',
+        "metric_hero": '{"role":"metric_hero","kicker":"Result","value":"<200ms","label":"median response","body":"..."}',
+        "stat_row": '{"role":"stat_row","title":"Where the work has *landed*","stats":[{"value":"26","label":"projects"},{"value":"11","label":"countries"},{"value":"5","label":"open-source tools"}]}',
+        "bar_chart": '{"role":"bar_chart","title":"Where the *seconds* went","chart":{"unit":"s","series":[{"label":"Images","value":3.1},{"label":"Scripts","value":1.8},{"label":"Fonts","value":0.7}]}}',
+        "comparison_bar": '{"role":"comparison_bar","title":"Two ways to *start*","chart":{"unit":" weeks","series":[{"label":"Working prototype","value":1},{"label":"Paid discovery","value":4}]}}',
+        "donut": '{"role":"donut","title":"Already on a *phone*","chart":{"value":78,"label":"of sessions on mobile"}}',
+        "statement": '{"role":"statement","kicker":"The problem","title":"The booking page worked. *Nobody used it.*","body":"..."}',
+        "steps": '{"role":"steps","title":"The *free prototype*","steps":[{"title":"You describe it","detail":"One call."},{"title":"We build it","detail":"Working, not a mockup."},{"title":"You decide","detail":"Or walk away."}]}',
+        "checklist": '{"role":"checklist","title":"Four things to *ask for*","items":["Who owns the code","What happens if the developer leaves","Whether hosting is included","How changes are priced"]}',
+        "flow_diagram": '{"role":"flow_diagram","title":"How a brief becomes *software*","nodes":["Brief","Prototype","Your call","Build","Handover"]}',
+        "before_after": '{"role":"before_after","title":"Same content. *Different* result.","before":{"label":"Before","text":"..."},"after":{"label":"After","text":"..."}}',
+        "myth_fact": '{"role":"myth_fact","myth":"You need the full spec first.","fact":"You need *one working screen*."}',
+        "mockup_browser": '{"role":"mockup_browser","kicker":"Work","title":"A booking desk that *answers*.","url":"wizcodes.site/work/cuepilot"}',
+        "graphic_embed": '{"role":"graphic_embed","kicker":"From the blog","title":"The four *guardrails*"}',
+        "quote": '{"role":"quote","quote":"They shipped the thing they said they would.","attribution":"Priya Raman, Northgate Dental"}',
+        "cta_pill": '{"role":"cta_pill","title":"See it before you *pay for it*.","body":"...","pill":"wizcodes.site/get-started"}',
+        "cta_split": '{"role":"cta_split","title":"See it before you *pay for it*.","pill":"wizcodes.site/get-started","note":"No retainer."}',
+    }
+    lines = ["Return a JSON object shaped exactly like this:",
+             '{"caption": "...", "hashtags": ["..."], "slides": [']
+    for name in archetypes:
+        a = visual.resolve(name)
+        key = a.name if a else name
+        lines.append("  " + examples.get(key, '{"role":"' + key + '"}') + ",")
+    if len(lines) > 2:
+        lines[-1] = lines[-1].rstrip(",")
+    lines.append("]}")
+    imaged = [n for n in archetypes if visual.is_imaged(n)]
+    if imaged:
+        lines.append("")
+        lines.append(
+            "Do NOT write an `image` or `svg` field. Artwork for "
+            f"{', '.join(sorted(set(imaged)))} is attached from the site's own "
+            "graphics library after you write - you supply only the words."
+        )
+    return "\n".join(lines)
+
+
+def post_system_prompt(facts_block: str, stats_block: str = "") -> str:
+    stats = f"\n\n{stats_block}" if stats_block else ""
     return f"""\
 You write short social posts for WizCodes, a small software studio in Ahmedabad \
 building web, mobile and AI products for clients mostly in the US, UK and EU. \
@@ -172,37 +334,38 @@ past you.
 
 {VOICE_RULES}
 
+{CLAIMS_RULES}
+
 REAL WIZCODES FACTS - the only facts you may use:
 
-{facts_block}"""
+{facts_block}{stats}"""
 
 
-def post_user_prompt(pillar: str, platform: str, fmt: str, slides: int, extra: str = "") -> str:
+def post_user_prompt(
+    pillar: str,
+    platform: str,
+    fmt: str,
+    slides: int,
+    extra: str = "",
+    *,
+    archetypes: list[str] | None = None,
+    region_brief: str = "",
+    phrase_brief: str = "",
+) -> str:
     lines = [
         f"Write one {platform} post.",
         "",
         f"Pillar: {pillar}. {PILLAR_BRIEFS.get(pillar, '')}",
         f"Platform: {PLATFORM_BRIEFS.get(platform, '')}",
     ]
+    if region_brief:
+        lines += ["", region_brief]
+    if phrase_brief:
+        lines += ["", phrase_brief]
     if extra:
         lines += ["", extra]
     if fmt == "carousel":
-        lines += [
-            "",
-            f"This one is a {slides}-slide carousel.",
-            CAROUSEL_ROLES,
-            "",
-            "Return a JSON object shaped like:",
-            '{"caption": "...", "hashtags": ["..."], "slides": [',
-            '  {"role": "cover", "theme": "dark", "kicker": "...", "title": "...", "body": "..."},',
-            '  {"role": "metric", "kicker": "...", "value": "<200ms", "label": "...", "body": "..."},',
-            (
-                '  {"role": "steps", "kicker": "...", "title": "...", "steps": ['
-                '{"title": "...", "detail": "..."}]},'
-            ),
-            '  {"role": "cta", "theme": "dark", "title": "...", "body": "...", "pill": "..."}',
-            "]}",
-        ]
+        lines += ["", carousel_spec(archetypes or [])]
     else:
         lines += [
             "",

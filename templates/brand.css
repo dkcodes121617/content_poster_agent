@@ -11,18 +11,52 @@
 
    Fonts are loaded from ../assets as local files. No network at render time —
    a scheduled post must never fail because Google Fonts was slow.
+
+   ── The one structural idea in this file ──
+   Every size is expressed against `--u`, and `--u` is `--base * --fit`:
+
+     --base  the smaller of the canvas width and 85% of its height, so one
+             stylesheet serves 4:5, 2:3, 1:1, 9:16 AND 1.91:1 without a second
+             set of numbers
+     --fit   a multiplier the template sets after measuring the real text
+
+   So when a headline is one line too long the entire type scale shrinks
+   together, and when it is short the scale grows into the slack. Adjusting a
+   single element instead would destroy the size relationships the composition
+   is built out of — the difference between "smaller" and "wrong".
+
+   Padding and the footer use `--base` but not `--fit`: the frame is the brand
+   and holds still while the content inside it scales.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* WEIGHT RANGES, not single weights, and the reason is the embedded artwork.
+ *
+ * Only two static files exist (these are not variable fonts — no fvar table).
+ * Declared at exactly 400 and 600, any other weight has no matching face, so
+ * Chromium synthesises one: it smears the glyphs and, critically, changes their
+ * advance widths.
+ *
+ * That went unnoticed until the blog SVGs were embedded, because the slide CSS
+ * only ever asks for 400 and 600. The SVGs — authored for the website, where
+ * the full Google Sans family is loaded — ask for `font-weight="800"` and
+ * `font-weight="500"`. A reused diagram rendered with its words visibly
+ * colliding: "Audio leaves the browser as spoken" came out as
+ * "Audioleavesthe browserasspoken".
+ *
+ * Ranges map every requested weight onto a real face. 500 resolves to Regular,
+ * 800 to SemiBold. Slightly lighter than the artwork intends, and correct
+ * rather than mangled.
+ */
 @font-face {
   font-family: 'Google Sans Flex';
   src: url('../assets/GoogleSansFlex-Regular.ttf') format('truetype');
-  font-weight: 400;
+  font-weight: 100 500;
   font-display: block;
 }
 @font-face {
   font-family: 'Google Sans Flex';
   src: url('../assets/GoogleSansFlex-SemiBold.ttf') format('truetype');
-  font-weight: 600;
+  font-weight: 501 900;
   font-display: block;
 }
 @font-face {
@@ -88,6 +122,28 @@ html, body {
    aspect ratio. Slides are composed at their true pixel size and captured at
    deviceScaleFactor 2, which is what keeps type crisp on a phone screen. */
 .slide {
+  --fit: 1;
+
+  /* The type unit, and it is NOT the canvas width.
+     Sizing off width alone is right for 4:5 and 2:3 and wrong for everything
+     landscape: on Facebook's 1200x630 the h2 came out at 74px with only 630px
+     of height to spend, and a three-card `steps` slide could not fit even at
+     0.62x. The `--fit` net cannot save a slide whose type was sized against a
+     dimension it does not have.
+     `h * 0.85` is what a 4:5 canvas already implies, so portrait sizes are
+     unchanged to the pixel and only the short canvases scale down. */
+  --base: min(var(--w), calc(var(--h) * 0.85));
+  --u: calc(var(--base) * var(--fit));
+
+  /* Surface tokens the themes below swap, so components never name a colour */
+  --ink: var(--text-primary);
+  --ink-soft: var(--text-secondary);
+  --ink-faint: var(--text-muted);
+  --accent: var(--blue);
+  --card: var(--surface);
+  --card-line: transparent;
+  --card-shadow: var(--shadow-card-soft);
+
   width: var(--w);
   height: var(--h);
   position: relative;
@@ -95,16 +151,30 @@ html, body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: calc(var(--w) * 0.085);
+  padding: calc(var(--base) * 0.085);
   background: var(--page-bg);
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
-/* Dark variant — the site's navy band. Used for cover and CTA slides so a
-   carousel opens and closes dark and reads light in the middle. */
+/* Dark — the site's navy band. A carousel opens and closes dark and reads
+   light in the middle. */
 .slide[data-theme="dark"] {
+  --ink: var(--text-on-navy);
+  --ink-soft: var(--text-on-navy-muted);
+  --ink-faint: var(--text-on-navy-muted);
+  --accent: var(--baby-blue);
+  --card: rgba(255,255,255,0.05);
+  --card-line: rgba(142,202,230,0.14);
+  --card-shadow: none;
   background: var(--surface-navy);
-  color: var(--text-on-navy);
+}
+
+/* Tinted — the baby-blue wash as a whole surface. Without a third state every
+   deck alternates between two, which reads as a toggle rather than a palette. */
+.slide[data-theme="tinted"] {
+  --card: rgba(255,255,255,0.72);
+  --card-line: rgba(46,144,196,0.14);
+  background: var(--baby-blue-wash);
 }
 
 /* ── Atmosphere ──
@@ -121,68 +191,178 @@ html, body {
 .slide[data-theme="dark"]::before {
   background: radial-gradient(120% 80% at 50% -15%, rgba(142,202,230,0.16), transparent 70%);
 }
+.slide[data-theme="tinted"]::before {
+  background: radial-gradient(110% 70% at 80% -10%, rgba(255,255,255,0.85), transparent 65%);
+}
 .slide::after {
   content: '';
   position: absolute;
   inset: 0;
   background-image: radial-gradient(var(--baby-blue) 1.5px, transparent 1.5px);
-  background-size: calc(var(--w) * 0.035) calc(var(--w) * 0.035);
+  background-size: calc(var(--base) * 0.035) calc(var(--base) * 0.035);
   opacity: 0.22;
   -webkit-mask-image: linear-gradient(to bottom, #000, transparent 55%);
   mask-image: linear-gradient(to bottom, #000, transparent 55%);
   pointer-events: none;
 }
 .slide[data-theme="dark"]::after { opacity: 0.10; }
+.slide[data-theme="tinted"]::after { opacity: 0.30; }
 
 .layer { position: relative; z-index: 1; }
 
-/* Vertical composition. The middle layer takes the slack, so the kicker stays
-   pinned top and the wordmark stays pinned bottom on every slide — that fixed
-   frame is what makes a carousel read as one piece. Cover and CTA sit low, the
-   way the site's hero does; content slides sit optically centred. */
-#main { flex: 1; display: flex; flex-direction: column; }
-.slide[data-role="cover"] #main,
-.slide[data-role="cta"]   #main { justify-content: flex-end; padding-bottom: calc(var(--h) * 0.06); }
-.slide[data-role="metric"] #main { justify-content: center; }
-.slide[data-role="statement"] #main,
-.slide[data-role="quote"] #main { justify-content: center; }
-/* Centred, not top-aligned: a 3-step slide top-aligned leaves a third of the
-   canvas empty, which reads as a template with a slot nobody filled. */
-.slide[data-role="steps"] #main,
-.slide[data-role="mockup"] #main { justify-content: center; }
+/* ═══ Layouts (CONTENT_SYSTEM.md §3.2) ═════════════════════════════════════
+   The second axis. Archetype × layout × theme varies the surface far more than
+   adding templates would, and each of these is one block rather than a file.
 
-/* ── Type scale, in viewport-relative units so one stylesheet serves 1080×1350
-   and 1600×900 without a second set of numbers. ── */
+   §1.3 is fixed here rather than in a builder: everything used to be
+   vertically centred, so a three-line slide floated in the middle of the canvas
+   and read as a template with a slot nobody filled. `top_anchored` is now a
+   real choice the rotation ledger can make. */
+#main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+.slide[data-layout="centred"] #main { justify-content: center; }
+
+.slide[data-layout="top_anchored"] #main {
+  justify-content: flex-start;
+  padding-top: calc(var(--h) * 0.015);
+}
+
+/* Openers and closers sit low, the way the site's hero does. Applied only in
+   the centred layout — an opener the ledger put in top_anchored means to be
+   top-anchored. */
+.slide[data-layout="centred"][data-family="opener"] #main,
+.slide[data-layout="centred"][data-family="closer"] #main {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--h) * 0.05);
+}
+
+.slide[data-layout="split_5050"] #main {
+  flex-direction: row;
+  align-items: center;
+  gap: calc(var(--u) * 0.05);
+}
+.slide[data-layout="split_5050"] .pane { flex: 1 1 0; min-width: 0; }
+
+/* Artwork behind, text over a scrim.
+
+   The art gets its OWN layer rather than sitting inside #main. The first
+   version absolutely positioned it within #main with a negative inset to escape
+   the padding, and an absolutely-positioned descendant still counts toward its
+   container's scroll height — so every full-bleed slide reported a vertical
+   overflow it did not have. The audit caught that on the first full render,
+   which is exactly the job it was added to do.
+
+   The scrim is not optional: the brand SVGs are light, and light type on light
+   artwork is the fastest way to publish an unreadable slide. */
+.bleed { display: none; }
+.slide[data-layout="full_bleed"] .bleed {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.slide[data-layout="full_bleed"] .bleed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,2,5,0.90) 0%, rgba(0,2,5,0.58) 38%, transparent 74%);
+}
+/* Hoisted out of #main by the template, so the card chrome it wore there has
+   to come off: a full-bleed diagram is the background, not a card on one. */
+.bleed .pane-art,
+.bleed .embed {
+  position: static;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bleed .art { width: 100%; height: 100%; }
+.bleed svg, .bleed .shot { width: 100%; height: 100%; max-height: none; }
+.slide[data-layout="full_bleed"] #main { justify-content: flex-end; }
+.slide[data-layout="full_bleed"] {
+  --ink: var(--text-on-navy);
+  --ink-soft: var(--text-on-navy-muted);
+  --accent: var(--baby-blue);
+}
+/* The `background` shorthand resets `background-clip` to border-box, so an
+   override that only swaps the gradient silently un-clips the text and the
+   headline renders as a solid blue rectangle over the artwork. Every .grad
+   override has to restate the clip. */
+.slide[data-layout="full_bleed"] .grad {
+  background: var(--gradient-fill);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Content in a narrower column pushed off centre, with the grid left visible
+   beside it. The asymmetry is the variety — same archetype, different picture. */
+.slide[data-layout="offset_grid"] #main {
+  justify-content: center;
+  align-items: flex-start;
+}
+.slide[data-layout="offset_grid"] #main > * { max-width: 76%; }
+.slide[data-layout="offset_grid"]::after {
+  opacity: 0.34;
+  -webkit-mask-image: linear-gradient(to left, #000, transparent 58%);
+  mask-image: linear-gradient(to left, #000, transparent 58%);
+}
+
+/* ═══ Type scale ═══════════════════════════════════════════════════════════
+   In canvas-relative units so one stylesheet serves 1080×1350 and 1600×900
+   without a second set of numbers. */
 .kicker {
   font-family: 'Google Sans Code', monospace;
-  font-size: calc(var(--w) * 0.026);
+  font-size: calc(var(--u) * 0.026);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--blue);
-  margin-bottom: calc(var(--w) * 0.035);
+  color: var(--accent);
+  margin-bottom: calc(var(--u) * 0.035);
 }
-.slide[data-theme="dark"] .kicker { color: var(--baby-blue); }
 
+/* `padding-bottom` is not spacing — it is headroom for the last line's
+   descenders. A line-height of 1.04 is tighter than the font's own ascent plus
+   descent, so an inline box (every <span class="grad">) extends a few pixels
+   below the block that contains it. On a bottom-anchored cover that put the
+   span 6px past #main and the audit correctly called it an overflow. Reserving
+   the descent inside the block is the fix; loosening the audit would have been
+   the bug. */
 h1 {
   font-weight: 600;
-  font-size: calc(var(--w) * 0.092);
+  font-size: calc(var(--u) * 0.092);
   line-height: 1.04;
   letter-spacing: -0.03em;
+  padding-bottom: 0.08em;
 }
 h2 {
   font-weight: 600;
-  font-size: calc(var(--w) * 0.062);
+  font-size: calc(var(--u) * 0.062);
   line-height: 1.12;
   letter-spacing: -0.022em;
+  padding-bottom: 0.05em;
 }
 p.body {
-  font-size: calc(var(--w) * 0.036);
+  font-size: calc(var(--u) * 0.036);
   line-height: 1.45;
-  color: var(--text-secondary);
+  color: var(--ink-soft);
   max-width: 88%;
-  margin-top: calc(var(--w) * 0.03);
+  margin-top: calc(var(--u) * 0.03);
 }
-.slide[data-theme="dark"] p.body { color: var(--text-on-navy-muted); }
+p.note {
+  font-size: calc(var(--u) * 0.028);
+  line-height: 1.4;
+  color: var(--ink-faint);
+  margin-top: calc(var(--u) * 0.022);
+}
 
 /* Clipped-gradient accent — the site's signature headline treatment. */
 .grad {
@@ -191,94 +371,362 @@ p.body {
   background-clip: text;
   color: transparent;
 }
-.slide[data-theme="dark"] .grad {
-  background: var(--gradient-fill);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
+.slide[data-theme="dark"] .grad { background: var(--gradient-fill); -webkit-background-clip: text; background-clip: text; }
 
-/* ── The metric slide: one number, enormous. ── */
+/* ═══ Data family ══════════════════════════════════════════════════════════ */
+
+/* One number, enormous. `--vfit` is set per element by the template when a
+   value would otherwise wrap — a metric that wraps is not a metric. */
 .metric {
   font-weight: 600;
-  font-size: calc(var(--w) * 0.20);
+  font-size: calc(var(--u) * 0.20 * var(--vfit, 1));
   line-height: 0.9;
   letter-spacing: -0.045em;
+  white-space: nowrap;
+  padding-bottom: 0.12em;   /* descender headroom; line-height 0.9 is very tight */
 }
 .metric-label {
-  font-size: calc(var(--w) * 0.034);
-  color: var(--text-secondary);
-  margin-top: calc(var(--w) * 0.02);
+  font-size: calc(var(--u) * 0.034);
+  color: var(--ink-soft);
+  margin-top: calc(var(--u) * 0.02);
 }
-.slide[data-theme="dark"] .metric-label { color: var(--text-on-navy-muted); }
+.cover-stat { margin-bottom: calc(var(--u) * 0.03); }
+.cover-stat .metric { font-size: calc(var(--u) * 0.155 * var(--vfit, 1)); }
 
-/* ── Steps / list slides ── */
-.steps { display: flex; flex-direction: column; gap: calc(var(--w) * 0.028); margin-top: calc(var(--w) * 0.05); }
+/* The site's own three-up stat row (30 / 11 / 100%). */
+.stats { display: flex; gap: calc(var(--u) * 0.03); margin-top: calc(var(--u) * 0.05); }
+.stat {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+  padding: calc(var(--u) * 0.032) calc(var(--u) * 0.026);
+}
+.stat-v {
+  font-weight: 600;
+  font-size: calc(var(--u) * 0.072 * var(--vfit, 1));
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+.stat-l {
+  font-size: calc(var(--u) * 0.026);
+  color: var(--ink-soft);
+  margin-top: calc(var(--u) * 0.014);
+  line-height: 1.3;
+}
+
+/* Charts are inline SVG and plain divs — no library, no fetch. */
+.chart { margin-top: calc(var(--u) * 0.045); }
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.022);
+  margin-bottom: calc(var(--u) * 0.024);
+}
+.bar-label {
+  flex: 0 0 26%;
+  font-size: calc(var(--u) * 0.028);
+  color: var(--ink-soft);
+  line-height: 1.25;
+}
+.bar-track {
+  flex: 1 1 auto;
+  height: calc(var(--u) * 0.048);
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, rgba(142,202,230,0.55), rgba(33,158,188,0.55));
+}
+/* The bar that carries the argument. Muting the others is what makes a chart
+   say something rather than merely display something. */
+.bar-fill.strong { background: var(--gradient-fill); }
+.bar-value {
+  flex: 0 0 auto;
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--u) * 0.030);
+  color: var(--ink);
+  min-width: calc(var(--u) * 0.11);
+  text-align: right;
+}
+.chart-source {
+  font-size: calc(var(--u) * 0.022);
+  color: var(--ink-faint);
+  margin-top: calc(var(--u) * 0.02);
+}
+
+.donut {
+  position: relative;
+  width: calc(var(--u) * 0.42);
+  align-self: center;
+}
+.donut svg { width: 100%; height: auto; display: block; }
+.donut-track { stroke: var(--card); }
+.slide[data-theme="light"] .donut-track,
+.slide:not([data-theme]) .donut-track { stroke: #DCE6EE; }
+.donut-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.donut-value {
+  font-weight: 600;
+  font-size: calc(var(--u) * 0.085);
+  letter-spacing: -0.03em;
+}
+.donut-label {
+  text-align: center;
+  font-size: calc(var(--u) * 0.030);
+  color: var(--ink-soft);
+  margin-top: calc(var(--u) * 0.022);
+}
+
+/* ═══ Explainer family ═════════════════════════════════════════════════════ */
+.steps { display: flex; flex-direction: column; gap: calc(var(--u) * 0.028); margin-top: calc(var(--u) * 0.05); }
 .step {
   display: flex;
-  gap: calc(var(--w) * 0.028);
+  gap: calc(var(--u) * 0.028);
   align-items: flex-start;
-  background: var(--surface);
+  background: var(--card);
+  border: 1px solid var(--card-line);
   border-radius: var(--radius-card);
-  padding: calc(var(--w) * 0.033);
-  box-shadow: var(--shadow-card-soft);
-}
-.slide[data-theme="dark"] .step {
-  background: rgba(255,255,255,0.05);
-  box-shadow: none;
-  border: 1px solid rgba(142,202,230,0.14);
+  padding: calc(var(--u) * 0.033);
+  box-shadow: var(--card-shadow);
 }
 .step-n {
   font-family: 'Google Sans Code', monospace;
-  font-size: calc(var(--w) * 0.030);
-  color: var(--blue);
+  font-size: calc(var(--u) * 0.030);
+  color: var(--accent);
   flex-shrink: 0;
-  padding-top: calc(var(--w) * 0.004);
+  padding-top: calc(var(--u) * 0.004);
 }
-.slide[data-theme="dark"] .step-n { color: var(--baby-blue); }
-.step-t { font-size: calc(var(--w) * 0.034); font-weight: 600; line-height: 1.3; }
-.step-d { font-size: calc(var(--w) * 0.028); color: var(--text-muted); margin-top: calc(var(--w) * 0.008); line-height: 1.4; }
-.slide[data-theme="dark"] .step-d { color: var(--text-on-navy-muted); }
+.step-t { font-size: calc(var(--u) * 0.034); font-weight: 600; line-height: 1.3; }
+.step-d { font-size: calc(var(--u) * 0.028); color: var(--ink-faint); margin-top: calc(var(--u) * 0.008); line-height: 1.4; }
 
-/* ── Device mockup, using the site's own shadow ── */
+.checks { display: flex; flex-direction: column; gap: calc(var(--u) * 0.024); margin-top: calc(var(--u) * 0.05); }
+.check { display: flex; align-items: flex-start; gap: calc(var(--u) * 0.024); }
+.tick {
+  width: calc(var(--u) * 0.042);
+  height: calc(var(--u) * 0.042);
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-top: calc(var(--u) * 0.002);
+}
+.check-t { font-size: calc(var(--u) * 0.033); line-height: 1.35; }
+
+.flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 0.018);
+  margin-top: calc(var(--u) * 0.05);
+}
+.flow-step { display: flex; align-items: center; gap: calc(var(--u) * 0.018); }
+.flow-node {
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  box-shadow: var(--card-shadow);
+  border-radius: calc(var(--u) * 0.02);
+  padding: calc(var(--u) * 0.024) calc(var(--u) * 0.028);
+  font-size: calc(var(--u) * 0.029);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.flow-arrow { color: var(--accent); font-size: calc(var(--u) * 0.038); }
+
+.ba { display: flex; gap: calc(var(--u) * 0.028); margin-top: calc(var(--u) * 0.05); }
+.ba-panel {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: var(--radius-card);
+  padding: calc(var(--u) * 0.034);
+  background: var(--card);
+  border: 1px solid var(--card-line);
+  box-shadow: var(--card-shadow);
+}
+.ba-after { border: 1px solid rgba(46,144,196,0.35); }
+.ba-tag {
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--u) * 0.023);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: calc(var(--u) * 0.016);
+}
+.ba-after .ba-tag { color: var(--accent); }
+.ba-text { font-size: calc(var(--u) * 0.031); line-height: 1.35; }
+
+.mf { display: flex; flex-direction: column; gap: calc(var(--u) * 0.034); }
+.mf-tag {
+  display: inline-block;
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--u) * 0.023);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: calc(var(--u) * 0.014);
+}
+.mf-tag.on { color: var(--accent); }
+.mf-text { font-size: calc(var(--u) * 0.042); font-weight: 600; line-height: 1.25; }
+.struck { text-decoration: line-through; text-decoration-thickness: calc(var(--u) * 0.004); color: var(--ink-faint); }
+
+/* ═══ Proof family ═════════════════════════════════════════════════════════ */
+.shot { display: block; width: 100%; }
+.art svg { display: block; width: 100%; height: auto; }
+
+/* Embedded artwork opts OUT of the page's text rendering, and this is not a
+   nicety — it is the difference between a reusable diagram and an unusable one.
+ *
+ * `text-rendering: geometricPrecision` on html/body is right for our own
+ * headlines: it stops advance widths being rounded to whole pixels, which is
+ * what keeps a 99px clipped-gradient headline evenly spaced.
+ *
+ * Applied to an SVG whose text sits in a 100-unit viewBox scaled ~9x, it does
+ * the opposite. Every glyph lands on a fractional coordinate and the words come
+ * apart: "Batch thinking" rendered as "B at ch t hin kin g", and
+ * "Audio moves while spoken" lost its spaces entirely. Isolated by rendering
+ * the same SVG on a bare page (perfect) and on a bare page carrying only these
+ * two declarations (identically mangled).
+ */
+.art svg, .art svg text, .art svg tspan {
+  text-rendering: auto;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+.pane-art { display: flex; align-items: center; justify-content: center; min-width: 0; }
+
 .mockup {
-  border-radius: calc(var(--w) * 0.014);
+  border-radius: calc(var(--u) * 0.014);
   overflow: hidden;
   box-shadow: var(--shadow-mockup);
   background: var(--surface);
-  margin-top: calc(var(--w) * 0.045);
+  margin-top: calc(var(--u) * 0.045);
 }
 .mockup-bar {
-  height: calc(var(--w) * 0.032);
+  height: calc(var(--u) * 0.040);
   background: var(--surface-raised);
   display: flex;
   align-items: center;
-  gap: calc(var(--w) * 0.008);
-  padding: 0 calc(var(--w) * 0.014);
+  gap: calc(var(--u) * 0.008);
+  padding: 0 calc(var(--u) * 0.014);
 }
-.dot { width: calc(var(--w) * 0.009); height: calc(var(--w) * 0.009); border-radius: 50%; }
+.dot { width: calc(var(--u) * 0.009); height: calc(var(--u) * 0.009); border-radius: 50%; flex-shrink: 0; }
+.mockup-url {
+  margin-left: calc(var(--u) * 0.014);
+  font-family: 'Google Sans Code', monospace;
+  font-size: calc(var(--u) * 0.019);
+  color: #667080;
+  white-space: nowrap;
+  overflow: hidden;
+}
 
-/* ── Footer: the wordmark, in the site's two-tone treatment, same place every
-   slide. This is the consistency that makes a small studio look established. ── */
-.foot {
+/* Portrait, and constrained by HEIGHT not width. The mockup inside is 320x640,
+   so a width-driven frame in a 50% pane runs past the bottom of the canvas. */
+.phone {
+  position: relative;
+  width: auto;
+  max-width: 100%;
+  max-height: calc(var(--h) * 0.62);
+  aspect-ratio: 320 / 640;
+  margin: 0 auto;
+  border-radius: calc(var(--u) * 0.055);
+  border: calc(var(--u) * 0.009) solid #10151D;
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-mockup);
+}
+.phone-notch {
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 34%;
+  height: calc(var(--u) * 0.022);
+  background: #10151D;
+  border-radius: 0 0 calc(var(--u) * 0.016) calc(var(--u) * 0.016);
+  z-index: 2;
+}
+
+/* A blog diagram is authored for a column roughly 720px wide and 450 tall. At
+   100% of a 1080 canvas that is 675px of artwork, which with a headline above
+   and a caption below overflows a 1350 slide — caught by the audit on the first
+   full render rather than in public. The height cap is what makes an embed
+   composable with text; `min-height: 0` is what lets it actually shrink inside
+   the flex column. */
+.embed {
+  margin-top: calc(var(--u) * 0.04);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: calc(var(--u) * 0.03);
+  box-shadow: var(--card-shadow);
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: calc(var(--w) * 0.026);
+  justify-content: center;
 }
-.wordmark { font-weight: 600; letter-spacing: -0.01em; }
-.wordmark .wiz { color: var(--brand-wiz); }
-.wordmark .codes { color: var(--brand-codes); }
-.slide[data-theme="dark"] .wordmark .wiz { color: var(--brand-wiz-on-dark); }
-.slide[data-theme="dark"] .wordmark .codes { color: var(--brand-codes-on-dark); }
-.foot .idx { font-family: 'Google Sans Code', monospace; color: var(--text-muted); }
-.slide[data-theme="dark"] .foot .idx { color: var(--text-on-navy-muted); }
+.embed .art { width: 100%; min-height: 0; display: flex; justify-content: center; }
+.embed .art svg,
+.embed .shot { width: 100%; height: auto; max-height: calc(var(--h) * 0.46); }
+.slide[data-theme="dark"] .embed { background: rgba(255,255,255,0.94); }
+.embed-cap {
+  font-size: calc(var(--u) * 0.026);
+  color: var(--ink-faint);
+  margin-top: calc(var(--u) * 0.022);
+  line-height: 1.35;
+}
 
+.quote-mark {
+  font-size: calc(var(--u) * 0.16);
+  line-height: 0.6;
+  color: var(--accent);
+  opacity: 0.35;
+  margin-bottom: calc(var(--u) * 0.01);
+}
+.attribution {
+  font-size: calc(var(--u) * 0.030);
+  color: var(--ink-soft);
+  margin-top: calc(var(--u) * 0.035);
+}
+
+/* ═══ Closers ══════════════════════════════════════════════════════════════ */
+.pill-wrap { margin-top: calc(var(--u) * 0.05); }
 .pill {
   display: inline-block;
-  padding: calc(var(--w) * 0.014) calc(var(--w) * 0.032);
+  padding: calc(var(--u) * 0.014) calc(var(--u) * 0.032);
   border-radius: var(--radius-pill);
   background: var(--gradient-fill);
   color: var(--on-baby-blue);
   font-weight: 600;
-  font-size: calc(var(--w) * 0.030);
+  font-size: calc(var(--u) * 0.030);
 }
+.pane-cta { display: flex; flex-direction: column; justify-content: center; }
+.pane-cta .pill-wrap { margin-top: 0; }
+
+/* ═══ Footer ═══════════════════════════════════════════════════════════════
+   The wordmark, in the site's two-tone treatment, in the same place on every
+   slide. This is the consistency that makes a small studio look established. */
+/* Sized against --w, not --u: the footer is the frame, not the content. When a
+   slide's type scales up or down to fit, the wordmark has to stay exactly where
+   and what it was — a wordmark that changes size between slides in one carousel
+   is the tell that undoes the consistency this footer exists to create. */
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: calc(var(--base) * 0.026);
+}
+.wordmark { font-weight: 600; letter-spacing: -0.01em; }
+.wordmark .wiz { color: var(--brand-wiz); }
+.wordmark .codes { color: var(--brand-codes); }
+.slide[data-theme="dark"] .wordmark .wiz,
+.slide[data-layout="full_bleed"] .wordmark .wiz { color: var(--brand-wiz-on-dark); }
+.slide[data-theme="dark"] .wordmark .codes,
+.slide[data-layout="full_bleed"] .wordmark .codes { color: var(--brand-codes-on-dark); }
+.foot .idx { font-family: 'Google Sans Code', monospace; color: var(--ink-faint); }

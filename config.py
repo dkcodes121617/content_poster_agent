@@ -122,6 +122,50 @@ class Config:
     repetition_threshold: float = float(env_str("REPETITION_THRESHOLD", "0.86"))
     jitter_minutes: int = env_int("JITTER_MINUTES", 25)
 
+    # ── phasing (CONTENT_SYSTEM.md §6) ──
+    # ISO date the campaign began. Blank means steady state, which is the safe
+    # default: an unset value on a system already running for months must not
+    # silently withhold two thirds of the pillars.
+    campaign_start_date: str = env_str("CAMPAIGN_START_DATE")
+    # Extra slots for the first N weeks, so an empty profile fills up fast. 0
+    # disables it. Weighted toward Pinterest, which is a search index and does
+    # not penalise volume - see the boost block in campaign/calendar.py.
+    boost_weeks: int = env_int("BOOST_WEEKS", 3)
+
+    # ── visual variety (§3) ──
+    # Off means the original single deck shape, for comparing against.
+    visual_variety: bool = env_bool("VISUAL_VARIETY", True)
+    # Charts are only offered when the curated stats file has usable figures.
+    # Set false to keep them off entirely regardless.
+    charts_enabled: bool = env_bool("CHARTS_ENABLED", True)
+    # Reuse the site's brand SVGs on slides (§2). Needs SITE_READ_TOKEN.
+    site_artwork: bool = env_bool("SITE_ARTWORK", True)
+
+    # ── search phrases (campaign/keywords.py) ──
+    # The opening line of a post is its URL slug on LinkedIn and dev.to, so it
+    # is written to carry a phrase people actually search for.
+    seo_phrases: bool = env_bool("SEO_PHRASES", True)
+    # Reject a draft whose opening line does not carry the phrase. Off by
+    # default: on platforms where the first line is not a URL this is a
+    # preference, and a preference should not cost a slot.
+    seo_phrase_required: list[str] = field(
+        default_factory=lambda: env_list("SEO_PHRASE_REQUIRED", "linkedin,devto")
+    )
+
+    # ── geography (§4) ──
+    geo_targeting: bool = env_bool("GEO_TARGETING", True)
+    # Regions in rotation. Removing one is an env edit, not a code change.
+    regions_enabled: list[str] = field(
+        default_factory=lambda: env_list("REGIONS_ENABLED", "US,GB,EU")
+    )
+
+    # ── capacity + backfill (§5) ──
+    # When false the fixed weekly calendar governs volume on its own, which is
+    # correct until a platform actually unlocks.
+    capacity_scheduling: bool = env_bool("CAPACITY_SCHEDULING", False)
+    backfill_enabled: bool = env_bool("BACKFILL_ENABLED", False)
+    backfill_per_run: int = env_int("BACKFILL_PER_RUN", 1)
+
     # ── trend intelligence (TRENDS.md) ──
     trends_enabled: bool = env_bool("TRENDS_ENABLED", True)
     tavily_api_key: str = env_str("TAVILY_API_KEY")
@@ -185,6 +229,23 @@ class Config:
 
     def active_platforms(self) -> list[str]:
         return [p for p in self.platforms_enabled if p in PLATFORM_REQUIREMENTS]
+
+    def start_date(self):
+        """`CAMPAIGN_START_DATE` as a date, or None.
+
+        None means steady state. Returning None for an unparseable value as well
+        as an empty one is deliberate — `validate()` reports the bad value, and
+        between those two points a run should behave as though phasing is simply
+        off rather than crash on a date format.
+        """
+        from datetime import date
+
+        if not self.campaign_start_date:
+            return None
+        try:
+            return date.fromisoformat(self.campaign_start_date.strip())
+        except ValueError:
+            return None
 
     def token(self, name: str) -> str:
         """The freshest value for a rotating token: database, then environment.
@@ -253,6 +314,19 @@ class Config:
             problems.append(
                 "SITE_READ_TOKEN is not set and SITE_LOCAL_DIR is empty - grounding "
                 "facts cannot be built, and an ungrounded run must not publish"
+            )
+        if self.campaign_start_date and not self.start_date():
+            problems.append(
+                f"CAMPAIGN_START_DATE={self.campaign_start_date!r} is not an ISO date "
+                "(YYYY-MM-DD). Leave it blank for steady state."
+            )
+        unknown_regions = [
+            r for r in self.regions_enabled if r.upper() not in ("US", "GB", "EU")
+        ]
+        if unknown_regions:
+            problems.append(
+                f"REGIONS_ENABLED names unknown region(s): {', '.join(unknown_regions)}. "
+                "Known: US, GB, EU"
             )
         if problems:
             raise ConfigError(
