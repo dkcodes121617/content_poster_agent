@@ -193,7 +193,7 @@ PLACEHOLDER_SVG = (
     '<defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">'
     '<stop offset="0%" stop-color="#8ECAE6"/><stop offset="100%" stop-color="#219EBC"/>'
     "</linearGradient></defs>"
-    '<rect width="640" height="400" fill="#EEF3F7"/>'
+    '<rect width="640" height="400" fill="#E6F0F8"/>'
     '<rect x="40" y="40" width="360" height="26" rx="13" fill="url(#pg)"/>'
     '<rect x="40" y="92" width="560" height="14" rx="7" fill="#CBD9E4"/>'
     '<rect x="40" y="120" width="470" height="14" rx="7" fill="#CBD9E4"/>'

@@ -302,12 +302,32 @@ That is CSS the site already ships. Re-implementing it as draw calls means maint
 second, worse copy of the design system that drifts the moment the site changes. Rendering
 the actual CSS means the slides **inherit** the design rather than imitate it.
 
-`templates/brand.css` copies the `:root` tokens from `globals.css` **verbatim** — the same
+`templates/brand.css` carries the `:root` tokens from `globals.css` **verbatim** — the same
 `#2E90C4`, the same `linear-gradient(135deg,#2E90C4,#1E7AAB)`, the same two-tone wordmark. It
-is a copy on purpose: the render runs on Modal with no access to the site repo's CSS. **Sync
-rule:** when the site's tokens change, change them here. A social image in last year's blue
-reads as a third-party tool posting on your behalf, which is the exact impression this system
-exists to avoid.
+is a copy on purpose: the render runs on Modal with no access to the site repo's CSS.
+
+**The copy is generated, not hand-maintained.** The palette lives between
+`/* >>> wizcodes-tokens */` and `/* <<< wizcodes-tokens */` in `brand.css`, and the same
+sentinel pair guards the Python constants in `imaging/mockups.py`. Both are written by
+`wizcodes_next/scripts/sync-tokens.mjs` from `wizcodes_next/tokens.json`:
+
+```
+cd ../wizcodes_next && npm run sync-tokens
+```
+
+Edits made inside those blocks by hand are overwritten on the next sync — change the colour in
+`tokens.json` (and in `globals.css`, which is the design document and is verified against it),
+then re-run.
+
+**Nothing automatically catches a stale palette here.** The site's `prebuild` runs
+`sync-tokens --check`, but its CI clones only `wizcodes_next` — this repo is not there, so the
+check skips it. Drift is caught when someone runs the sync (or a local site build) from a
+workspace that has both repos checked out. Re-run it after any site palette change; a social
+image in last year's blue reads as a third-party tool posting on your behalf, which is the
+exact impression this system exists to avoid.
+
+Values *below* the closing sentinel (`--shadow-mockup`, `--radius-card`, the type scale) are
+poster-specific and safe to edit by hand.
 
 **Seven slide roles**, one template, so the atmosphere and footer cannot drift between slides:
 
