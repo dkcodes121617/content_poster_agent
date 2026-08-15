@@ -48,10 +48,10 @@ from dataclasses import dataclass
 INK = "#15233A"
 MUTED = "#8FA0B5"
 SURFACE = "#FFFFFF"
-RAISED = "#E6F0F8"
+RAISED = "#EEF3F7"
 BLUE = "#2E90C4"
 BABY = "#8ECAE6"
-WASH = "#DDEFFB"
+WASH = "#E4F2F9"
 TEAL = "#0E9C9C"
 VIOLET = "#8B3FD9"
 # <<< wizcodes-tokens
