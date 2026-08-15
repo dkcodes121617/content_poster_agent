@@ -147,7 +147,7 @@ def posted_today(config, platform: str, today: date | None = None) -> int:
             cur.execute(
                 "SELECT count(*) AS n FROM content.social_posts "
                 "WHERE platform = %s AND status = 'published' "
-                "AND created_at::date = %s",
+                "AND published_at::date = %s",
                 (platform, today or today_ist()),
             )
             return int((cur.fetchone() or {}).get("n", 0))
@@ -192,15 +192,15 @@ def backfill_candidates(config, platform: str, limit: int = 3) -> list[dict]:
         with connect(config.database_url) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT p.id, p.platform AS origin, p.pillar, p.caption, p.image_urls, "
-                "       p.created_at "
+                "       p.published_at AS created_at "
                 "FROM content.social_posts p "
                 "WHERE p.status = 'published' "
                 "  AND p.platform <> %s "
                 "  AND p.pillar <> 'timely' "
-                "  AND p.created_at > now() - make_interval(days => %s) "
+                "  AND p.published_at > now() - make_interval(days => %s) "
                 "  AND NOT EXISTS (SELECT 1 FROM content.backfill_log b "
                 "                  WHERE b.source_post_id = p.id AND b.platform = %s) "
-                "ORDER BY p.created_at DESC LIMIT %s",
+                "ORDER BY p.published_at DESC LIMIT %s",
                 (platform, BACKFILL_LOOKBACK_DAYS, platform, limit),
             )
             return list(cur.fetchall())

@@ -26,6 +26,9 @@ REGISTRY: dict[str, type[Platform]] = {
     # No API exists for these; the agent writes and a human posts.
     "x": ManualPlatform,
     "youtube": ManualPlatform,
+    # Reddit is hand-posted by policy rather than by API limitation: a person
+    # has to choose the subreddit and judge whether it is welcome there.
+    "reddit": ManualPlatform,
 }
 
 

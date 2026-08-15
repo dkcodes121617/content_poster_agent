@@ -4,6 +4,7 @@
     python main.py --dry-run        render and validate, publish nothing
     python main.py --force facebook:proof   ignore the calendar, do one slot now
     python main.py --schedule       print the week and exit
+    python main.py --brief          send the daily Telegram brief now
 """
 from __future__ import annotations
 
@@ -122,11 +123,25 @@ def main() -> int:
                         help="syndicate the newest un-syndicated blog post to dev.to")
     parser.add_argument("--trends", default="", metavar="harvest|refine|full|status",
                         help="run the trend pipeline, or show the funnel")
+    parser.add_argument("--brief", action="store_true",
+                        help="send the daily Telegram brief now and exit")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     if args.schedule:
         print_schedule()
+        return 0
+
+    if args.brief:
+        import uuid as _uuid
+
+        from campaign import brief
+
+        setup_logging(AGENT_NAME, str(_uuid.uuid4()), CONFIG.log_level)
+        print(brief.compose(CONFIG))
+        print()
+        for key, value in brief.send_daily(CONFIG).items():
+            print(f"  {key:22} {value}")
         return 0
 
     import dataclasses

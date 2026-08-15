@@ -62,6 +62,31 @@ def scheduled() -> dict:
     return run_once()
 
 
+@app.function(
+    image=image,
+    secrets=[secret],
+    # 18:30 UTC = 00:00 IST. Modal crons are UTC, and the whole point of this
+    # message is that it lands as the Indian day starts — the calendar's first
+    # slot is 11:00 IST, so midnight is the only hour where the plan arrives
+    # before the work does.
+    schedule=modal.Cron("30 18 * * *"),
+    timeout=300,
+    max_containers=1,
+    retries=1,
+)
+def daily_brief() -> dict:
+    """The 00:00 IST brief: yesterday's links, today's plan, the manual queue."""
+    import uuid
+
+    from wizcore.obs.log import setup_logging
+
+    from campaign import brief
+    from config import AGENT_NAME, CONFIG
+
+    setup_logging(AGENT_NAME, str(uuid.uuid4()), CONFIG.log_level)
+    return brief.send_daily(CONFIG)
+
+
 @app.function(image=image, secrets=[secret], timeout=1800)
 def manual(dry_run: bool = True, force: str = "") -> dict:
     """Ad-hoc run. Defaults to the safe path, because a manual trigger is

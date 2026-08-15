@@ -34,12 +34,21 @@ PLATFORM_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # content that never gets written.
     "x": (),
     "youtube": (),
+    # Reddit is hand-posted for a reason that is not technical. Most subreddits
+    # ban promotional posts outright, and the ones that allow them expect a
+    # participant rather than a poster. A human choosing the subreddit and the
+    # moment is the only version of this that does not get the account banned —
+    # so the agent writes, and a person decides where it goes, if anywhere.
+    #
+    # It is deliberately NOT in the weekly calendar. Add a slot only once there
+    # is a subreddit where the studio is genuinely a participant.
+    "reddit": (),
 }
 
 # Platforms delivered by a human rather than an API. They are recorded in
 # content.manual_queue so an item that scrolls past in Telegram shows up in the
 # digest instead of vanishing.
-MANUAL_PLATFORMS = frozenset({"x", "youtube"})
+MANUAL_PLATFORMS = frozenset({"x", "youtube", "reddit"})
 
 ALL_PLATFORMS = tuple(PLATFORM_REQUIREMENTS)
 

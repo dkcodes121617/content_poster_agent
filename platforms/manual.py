@@ -17,7 +17,7 @@ import json
 import logging
 
 from wizcore.db.conn import connect
-from wizcore.telegram.send import esc, send
+from wizcore.telegram.send import esc, send, send_album, send_photo
 
 from platforms.base import Draft, Platform, PublishResult
 
@@ -55,11 +55,19 @@ class ManualPlatform(Platform):
             blocks.append(
                 f"⚠️ tweet(s) {', '.join(map(str, over))} exceed {X_TWEET_LIMIT} characters"
             )
-        for url in draft.image_urls[:4]:
-            if url.startswith("http"):
-                blocks.append(esc(url))
-
         send("\n".join(b for b in blocks if b), topic="content", dry_run=self.config.dry_run)
+
+        # The images as ACTUAL photos, not links. A hand-posted draft is copied
+        # on a phone, and a URL means opening a browser, downloading, then
+        # switching apps; a photo in the chat is a long-press and save. The
+        # whole point of this queue is that posting it by hand is quick.
+        hosted = [u for u in draft.image_urls if u.startswith("http")][:10]
+        if hosted:
+            caption = f"images for the {esc(draft.platform)} post above"
+            if len(hosted) > 1:
+                send_album(hosted, caption, topic="content", dry_run=self.config.dry_run)
+            else:
+                send_photo(hosted[0], caption, topic="content", dry_run=self.config.dry_run)
 
         queue_id = self._record(draft, tweets)
         if queue_id:

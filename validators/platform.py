@@ -20,6 +20,9 @@ _HASHTAG = re.compile(r"(?<!\w)#\w+")
 
 # (caption limit, min images, max images, min hashtags, max hashtags)
 LIMITS: dict[str, tuple[int, int, int, int, int]] = {
+    # Reddit: 40k body limit, but a self-post over ~2500 characters stops being
+    # read. No hashtags — they do nothing there and mark you as an outsider.
+    "reddit": (2500, 0, 0, 0, 0),
     "facebook":  (63000, 1, 1, 0, 2),
     # 8-12 hashtags per CAMPAIGN.md §8 — but in the FIRST COMMENT, never the
     # caption. Those are two different rules and conflating them was a real bug:

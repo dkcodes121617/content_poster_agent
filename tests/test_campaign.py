@@ -7,6 +7,7 @@ of it, without needing Neon awake.
 """
 from __future__ import annotations
 
+import importlib
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
@@ -511,3 +512,86 @@ def test_pinterest_gets_a_looser_repetition_rule():
     assert repetition_threshold_for("threads", 0.86) == 0.86
     # A per-platform value may loosen, never tighten silently.
     assert repetition_threshold_for("pinterest", 0.97) == 0.97
+
+
+# ── the daily brief and Telegram fan-out ─────────────────────────────────────
+def test_the_brief_composes_without_a_database(config):
+    """It must arrive even when a section cannot be read.
+
+    A brief that fails when Postgres blinks is a brief you stop trusting, and
+    the day it does not arrive is indistinguishable from a day nothing happened.
+    """
+    from campaign import brief
+
+    text = brief.compose(replace(config, database_url=""), date(2026, 8, 12))
+    assert "Wednesday 12 Aug 2026" in text
+    for section in ("Yesterday", "Today", "Waiting on you"):
+        assert section in text, section
+
+
+def test_the_brief_reports_the_plan_not_the_calendar(config, snapshot):
+    """Phase substitutions and the boost have to show, or it describes fiction."""
+    from campaign import brief
+
+    launched = replace(config, database_url="", campaign_start_date="2026-08-10")
+    text = brief.compose(launched, date(2026, 8, 12))
+    assert "launch" in text
+    assert "boost" in text.lower()
+
+
+def test_a_quiet_day_still_says_something(config):
+    """Sunday is empty by design; silence and 'nothing scheduled' differ."""
+    from campaign import brief
+
+    text = brief.compose(replace(config, database_url=""), date(2026, 8, 16))  # Sunday
+    assert "nothing scheduled" in text
+
+
+def test_telegram_accepts_more_than_one_recipient(monkeypatch):
+    """`TELEGRAM_CHAT_ID` takes a comma-separated list.
+
+    A bot cannot add itself to somebody's chat, so a second person needs to be
+    a second recipient — forwarding is not a notification.
+    """
+    # `wizcore.telegram` re-exports the `send` FUNCTION under that name, so the
+    # module has to be fetched explicitly or the import binds the callable.
+    tg = importlib.import_module("wizcore.telegram.send")
+
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "111, 222 ,333")
+    assert tg._chats() == ["111", "222", "333"]
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "111")
+    assert tg._chats() == ["111"]
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+    assert tg._chats() == []
+
+
+def test_one_dead_recipient_does_not_silence_the_other(monkeypatch):
+    """Any, not all: a blocked bot must still reach everyone else."""
+    tg = importlib.import_module("wizcore.telegram.send")
+
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "good,bad")
+    calls = []
+
+    def fake_post(method, payload, files=None, attempts=4):
+        calls.append(payload["chat_id"])
+        if payload["chat_id"] == "bad":
+            raise RuntimeError("bot was blocked by the user")
+        return {"ok": True}
+
+    monkeypatch.setattr(tg, "_post", fake_post)
+    assert tg._fan_out("sendMessage", {"text": "hi"}) is True
+    assert calls == ["good", "bad"]
+
+
+def test_reddit_is_hand_posted_not_automated():
+    """The Lead Finder may never write to Reddit; a human may post there."""
+    from config import MANUAL_PLATFORMS
+    from platforms import REGISTRY
+    from platforms.manual import ManualPlatform
+
+    assert "reddit" in MANUAL_PLATFORMS
+    assert REGISTRY["reddit"] is ManualPlatform
+    from campaign.calendar import WEEK
+
+    assert not [s for s in WEEK if s.platform == "reddit"], \
+        "reddit must not be on the calendar until there is a subreddit to post in"

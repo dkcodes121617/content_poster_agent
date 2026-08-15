@@ -303,6 +303,27 @@ def mark_used(config, angle_id: int, platform: str) -> None:
         log.warning("could not mark angle %s used", angle_id, exc_info=True)
 
 
+def ready_count(config) -> int:
+    """How many verified angles are usable right now. 0 when unavailable.
+
+    Read by the daily brief. Returning 0 rather than raising is deliberate: the
+    brief must arrive even when the trend layer cannot be reached, and "no
+    angles" is the normal state most days anyway.
+    """
+    from wizcore.db.conn import connect
+
+    try:
+        with connect(config.database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM content.trend_angles "
+                "WHERE status = 'ready' AND expires_at > now()"
+            )
+            return int((cur.fetchone() or {}).get("n") or 0)
+    except Exception:
+        log.warning("could not count ready angles", exc_info=True)
+        return 0
+
+
 def insert_available(config, platform: str) -> bool:
     """Has the one off-calendar insert for this platform today been spent?
 
