@@ -77,3 +77,15 @@ ruff>=0.8.0
 # same reasoning as the Lead Finder classifier: spending proxy budget on
 # triage starves the one job where wording decides the outcome.
 groq>=1.6.0
+
+# ── wizcore's transitive requirement, and it is not optional ──
+# `wizcore/db/__init__.py` imports `identity`, which imports tldextract. So ANY
+# `from wizcore.db... import ...` in this agent fails without it — including
+# every idempotency claim and every social_posts write.
+#
+# It was missing here and present in the other two agents because only they
+# call `entity_key()` directly. Nothing surfaced it locally: the venv had it
+# pulled in as a sibling install. The Modal image did not, and the first
+# scheduled run would have died on import. Found by invoking a deployed
+# function rather than by trusting the deploy to have succeeded.
+tldextract>=5.1.0

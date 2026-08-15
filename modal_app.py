@@ -21,6 +21,8 @@ image, so a run must never fail because Google Fonts was slow.
 """
 from __future__ import annotations
 
+from datetime import UTC
+
 import modal
 
 app = modal.App("wizcodes-content")
@@ -51,31 +53,118 @@ secret = modal.Secret.from_name("wizcodes-content")
 @app.function(
     image=image,
     secrets=[secret],
-    schedule=modal.Cron("0 * * * *"),   # hourly; the calendar decides what is due
+    # THE only cron in this app. Twice an hour; the calendar decides what is
+    # due, and the dispatcher below decides what else runs on this tick.
+    schedule=modal.Cron("0,30 * * * *"),
     timeout=1800,                        # rendering + several platform APIs
     max_containers=1,                    # never two publishers at once
     retries=0,                           # idempotency claims handle safe retries
 )
 def scheduled() -> dict:
+    """The only cron in this app. Everything else is dispatched from here.
+
+    ## Why one function instead of six
+
+    Modal's plan allows **5 scheduled functions per workspace** and the three
+    agents declared ten between them. Consolidating is the better answer than
+    upgrading anyway: six crons meant six cold starts and six containers a day
+    doing work that takes seconds, and the sub-tasks below were never
+    independent — a trend refine exists to have an angle ready before the
+    posting run that reads it.
+
+    ## Twice an hour, not once
+
+    `0,30` rather than `0`. Two things need it. The daily brief has to land at
+    exactly 18:30 UTC (00:00 IST), and a calendar slot's 45-minute window with
+    ±25 minutes of jitter can open and close between two hourly ticks. Double
+    the ticks and no slot can be missed.
+
+    Publishing twice as often is safe because it always was: `core.external_actions`
+    claims a slot before the API call, so a second tick that finds the same slot
+    due refuses rather than duplicates. That guarantee is what makes this
+    schedule a free choice rather than a risk.
+
+    ## Every sub-task is isolated
+
+    One `try` each. A trend harvest failing must never stop the posting run that
+    is the point of the agent, and the reverse is equally true.
+    """
+    from datetime import datetime
+
+    now = datetime.now(UTC)
+    hour, minute, weekday = now.hour, now.minute, now.weekday()
+    out: dict = {}
+
+    def step(name: str, fn) -> None:
+        try:
+            result = fn()
+            out[name] = result if isinstance(result, (int, str)) else "ok"
+        except Exception as e:
+            out[name] = f"failed: {type(e).__name__}"
+            log_step_failure(name, e)
+
+    # The posting run, every tick. First, so nothing below can delay it.
     from main import run_once
 
-    return run_once()
+    try:
+        out.update(run_once())
+    except Exception as e:
+        out["run_failed"] = f"{type(e).__name__}: {e}"[:200]
 
+    # Free APIs, no LLM. Cheap enough that missing a trend costs more than
+    # running it does — but hourly rather than half-hourly, since nothing
+    # downstream reads it faster than that.
+    if minute < 30:
+        step("harvest", lambda: _trends("harvest"))
 
-@app.function(
-    image=image,
-    secrets=[secret],
-    # 18:30 UTC = 00:00 IST. Modal crons are UTC, and the whole point of this
-    # message is that it lands as the Indian day starts — the calendar's first
-    # slot is 11:00 IST, so midnight is the only hour where the plan arrives
+    # Ahead of the morning and evening posting windows, so an angle is ready
+    # when a slot opens rather than an hour after it closed.
+    if (hour, minute) in ((4, 30), (13, 30)):
+        step("refine", lambda: _trends("refine"))
+
+    # Event-driven on a poll: the blog agent publishes hourly and has no signal
+    # to send, so this asks "is there a post nobody has syndicated?" and usually
+    # answers no for free.
+    if (hour, minute) in ((6, 30), (16, 30)):
+        step("syndicate", _syndicate)
+
+    # 18:30 UTC = 00:00 IST. The Indian day starts, and the calendar's first
+    # slot is 11:00 IST — so this is the only hour where the plan arrives
     # before the work does.
-    schedule=modal.Cron("30 18 * * *"),
-    timeout=300,
-    max_containers=1,
-    retries=1,
-)
-def daily_brief() -> dict:
-    """The 00:00 IST brief: yesterday's links, today's plan, the manual queue."""
+    if (hour, minute) == (18, 30):
+        step("brief", _daily_brief)
+
+    # Weekly, every token regardless of remaining lifetime. A 60-day token
+    # refreshed weekly has eight chances to survive a transient failure.
+    if weekday == 0 and (hour, minute) == (4, 0):
+        step("tokens", _rotate_tokens)
+
+    return out
+
+
+def log_step_failure(name: str, exc: BaseException) -> None:
+    """A failed sub-task alerts, but never fails the tick.
+
+    Silent is the one thing it must not be: a trend harvest that has been
+    throwing for a fortnight looks exactly like a quiet news week.
+    """
+    import contextlib
+    import logging
+
+    from wizcore.telegram.send import alert
+
+    logging.getLogger("content_poster.modal").exception("scheduled step %s failed", name)
+    with contextlib.suppress(Exception):
+        alert("content_poster", exc, context=f"scheduled step: {name}")
+
+
+
+# ── the work, as plain functions ─────────────────────────────────────────────
+# `scheduled()` dispatches to these, and the @app.function wrappers below call
+# the same code so `modal run` still reaches every task individually. One
+# implementation, two entry points — the alternative is a manual trigger that
+# quietly does something different from the cron.
+def _daily_brief() -> dict:
     import uuid
 
     from wizcore.obs.log import setup_logging
@@ -85,6 +174,59 @@ def daily_brief() -> dict:
 
     setup_logging(AGENT_NAME, str(uuid.uuid4()), CONFIG.log_level)
     return brief.send_daily(CONFIG)
+
+
+def _syndicate() -> dict:
+    return _syndicate()
+
+
+def _trends(mode: str) -> dict:
+    """`harvest` is free and hourly; `refine` costs money and runs twice a day.
+
+    Split because the stages have different costs. A spike in trend volume
+    should cost HTTP requests, not LLM budget, and separating them is what
+    guarantees that.
+    """
+    from config import CONFIG
+    from trends import run
+
+    if mode == "harvest":
+        return run.harvest_only(CONFIG)
+
+    from wizcore.db.spend import BudgetGuard
+
+    from config import AGENT_NAME
+
+    budget = BudgetGuard.load(AGENT_NAME, CONFIG.budget_caps, CONFIG.database_url)
+    try:
+        return run.refine(CONFIG, budget)
+    finally:
+        budget.flush()
+
+
+def _rotate_tokens() -> dict:
+    from config import CONFIG
+    from platforms import tokens
+
+    outcome = tokens.refresh_all(CONFIG)
+    tokens.alert_if_needed(CONFIG, outcome)
+    return outcome
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    # 18:30 UTC = 00:00 IST. Modal crons are UTC, and the whole point of this
+    # message is that it lands as the Indian day starts — the calendar's first
+    # slot is 11:00 IST, so midnight is the only hour where the plan arrives
+    # before the work does.
+    timeout=300,
+    max_containers=1,
+    retries=1,
+)
+def daily_brief() -> dict:
+    """The 00:00 IST brief. Also dispatched from `scheduled()` at 18:30 UTC."""
+    return _daily_brief()
 
 
 @app.function(image=image, secrets=[secret], timeout=1800)
@@ -119,7 +261,6 @@ def manual(dry_run: bool = True, force: str = "") -> dict:
     # Twice daily. Event-driven work on a poll: the blog agent publishes hourly
     # and there is no signal it can send, so this asks "is there a post nobody
     # has syndicated?" and usually answers no for free.
-    schedule=modal.Cron("30 6,16 * * *"),
     timeout=600,
     max_containers=1,
     retries=0,
@@ -132,10 +273,7 @@ def syndicate_devto() -> dict:
     keyed (asset_type, slug) is what makes that question answerable and makes a
     double-syndication impossible.
     """
-    from campaign import syndicate
-    from config import CONFIG
-
-    return syndicate.run(CONFIG)
+    return _syndicate()
 
 
 @app.function(
@@ -143,7 +281,6 @@ def syndicate_devto() -> dict:
     secrets=[secret],
     # Hourly. Free APIs only, no LLM, no metered vendor — cheap enough that
     # missing a trend costs more than running this does.
-    schedule=modal.Cron("15 * * * *"),
     timeout=600,
     max_containers=1,
     retries=1,
@@ -155,10 +292,7 @@ def trends_harvest() -> dict:
     trend volume should cost HTTP requests, not LLM budget, and splitting them
     is what guarantees that.
     """
-    from config import CONFIG
-    from trends import run
-
-    return run.harvest_only(CONFIG)
+    return _trends("harvest")
 
 
 @app.function(
@@ -166,7 +300,6 @@ def trends_harvest() -> dict:
     secrets=[secret],
     # Twice daily, ahead of the morning and evening posting windows, so an
     # angle is ready when a slot opens rather than an hour after it closed.
-    schedule=modal.Cron("50 4,13 * * *"),
     timeout=1200,
     max_containers=1,
     retries=0,
@@ -178,16 +311,7 @@ def trends_refine() -> dict:
     gate — safety, novelty, relevance and corroboration — which is why this can
     run twice a day on a free tier.
     """
-    from wizcore.db.spend import BudgetGuard
-
-    from config import AGENT_NAME, CONFIG
-    from trends import run
-
-    budget = BudgetGuard.load(AGENT_NAME, CONFIG.budget_caps, CONFIG.database_url)
-    try:
-        return run.refine(CONFIG, budget)
-    finally:
-        budget.flush()
+    return _trends("refine")
 
 
 @app.function(
@@ -196,7 +320,6 @@ def trends_refine() -> dict:
     # Weekly, and every token every week regardless of remaining lifetime. A
     # 60-day token refreshed weekly has eight chances to survive a transient
     # failure; one refreshed at day 55 has one.
-    schedule=modal.Cron("0 4 * * 1"),
     timeout=300,
     retries=1,
 )
@@ -213,12 +336,7 @@ def rotate_tokens() -> dict:
     Telegram is only touched when something actually needs attention — a weekly
     "all fine" message is how an alert channel becomes one nobody reads.
     """
-    from config import CONFIG
-    from platforms import tokens
-
-    outcome = tokens.refresh_all(CONFIG)
-    tokens.alert_if_needed(CONFIG, outcome)
-    return outcome
+    return _rotate_tokens()
 
 
 @app.function(image=image, secrets=[secret], timeout=300)
