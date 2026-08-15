@@ -1,6 +1,6 @@
 """Writing prompts — CAMPAIGN.md §2, §3 and §5 as instructions.
 
-Phrased as a professional brief rather than as commands. The ClaudeStore proxy's
+Phrased as a professional brief rather than as commands. The LLMsRelay proxy's
 injection guard rejects override-style phrasing ("reply with exactly X", "never
 break character"), so constraints are expressed as *what a good answer looks
 like*. The validators enforce them afterwards regardless of what the model does.

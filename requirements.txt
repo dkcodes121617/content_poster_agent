@@ -4,7 +4,7 @@
 # and "works in the container" cannot diverge.
 
 # ── Shared library ──
-# `wizcore` holds the ClaudeStore proxy client (the CLI User-Agent Cloudflare
+# `wizcore` holds the LLMsRelay proxy client (the CLI User-Agent Cloudflare
 # demands, the injection-guard phrasing rules, the retry shape), the site facts
 # snapshot, the DB layer and Telegram. During build-out it is the sibling
 # folder, installed editable so a fix lands in every agent at once:

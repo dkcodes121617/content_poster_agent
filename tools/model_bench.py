@@ -1,4 +1,4 @@
-"""Benchmark the ClaudeStore proxy's models on the three jobs the agents do.
+"""Benchmark the LLMsRelay proxy's models on the three jobs the agents do.
 
     python tools/model_bench.py              # all models, all jobs
     python tools/model_bench.py --job voice  # one job
