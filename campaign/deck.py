@@ -338,6 +338,18 @@ def hashtags(config, deck: DeckPlan, count: int, today: date | None = None) -> l
     """
     if not config.geo_targeting:
         return []
+
+    # Threads takes exactly ONE tag and treats it as a TOPIC, not a hashtag: it
+    # is the feed the post joins. A regional tag like "EUTech" or "TechEurope"
+    # is a topic almost nobody reads, so the post lands in a room with no one
+    # in it — which is what a live account showed after a day of posting.
+    #
+    # The regional bank is right for Instagram, where tags are discovery
+    # keywords and eleven of them cost nothing. It is wrong here. On Threads
+    # the only question is which existing conversation is worth joining.
+    if deck.platform == "threads":
+        return [_threads_topic(deck)]
+
     from validators.platform import LIMITS
 
     limits = LIMITS.get(deck.platform)
@@ -350,6 +362,30 @@ def hashtags(config, deck: DeckPlan, count: int, today: date | None = None) -> l
     if count <= 0:
         return []
     return regions.hashtags_for(deck.region, deck.platform, deck.pillar, count, today)
+
+
+# Threads topics with real traffic, by what the post is about. Deliberately
+# broad: a topic is a room, and the point is to walk into a busy one. Anything
+# narrower than these is a room we would be standing in alone.
+_THREADS_TOPICS = {
+    "proof": "SmallBusiness",
+    "client_voice": "SmallBusiness",
+    "teach": "Entrepreneurship",
+    "process": "Entrepreneurship",
+    "direct_offer": "Entrepreneurship",
+    "pov": "Tech",
+    "timely": "AI",
+}
+
+
+def _threads_topic(deck: DeckPlan) -> str:
+    """The one topic tag a Threads post carries.
+
+    Chosen from the pillar rather than the region, because a Threads topic is
+    not a targeting parameter — it is which conversation the post joins, and
+    "UK small business owners" is not a conversation that exists there.
+    """
+    return _THREADS_TOPICS.get(deck.pillar, "SmallBusiness")
 
 
 def record(config, deck: DeckPlan, run_id: str = "") -> None:

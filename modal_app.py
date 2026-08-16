@@ -103,13 +103,46 @@ def scheduled() -> dict:
             out[name] = f"failed: {type(e).__name__}"
             log_step_failure(name, e)
 
-    # The posting run, every tick. First, so nothing below can delay it.
-    from main import run_once
+    # ── the cheap question first ──
+    #
+    # 48 ticks a day, and roughly 6% of them have a post due. The other 94%
+    # used to cost a full run anyway: build the graph, open a Postgres
+    # checkpointer, load the budget guard, then read five files out of the site
+    # repo over the GitHub API to build a 70 KB facts snapshot — all to
+    # discover the calendar had nothing to say.
+    #
+    # `due_slots()` is pure arithmetic over a list of dataclasses. Asking it
+    # first turns an empty tick from ~30 seconds of container time and a Neon
+    # wake into about two seconds and no connection at all. On Modal that is
+    # most of this agent's bill; on Neon, whose free tier bills a 5-minute idle
+    # window per wake-up whether you use it or not, it is more than that.
+    #
+    # The :00 tick always does the full pass, which is what keeps two things
+    # working that the calendar cannot answer for: Telegram `/done` commands
+    # (same sixty-minute latency they always had) and off-calendar timely
+    # inserts, which need a database read to know whether an angle is ready.
+    # So this halves the expensive runs rather than eliminating them, and
+    # nothing that depended on running loses anything.
+    from campaign.calendar import boost_active, due_slots, ist_now
+    from config import CONFIG
 
-    try:
-        out.update(run_once())
-    except Exception as e:
-        out["run_failed"] = f"{type(e).__name__}: {e}"[:200]
+    poll_commands_tick = minute < 30
+    ist = ist_now(CONFIG.display_tz)
+    due = due_slots(
+        ist, CONFIG.active_platforms(),
+        jitter_minutes=CONFIG.jitter_minutes,
+        boost=boost_active(CONFIG.start_date(), CONFIG.boost_weeks, ist.date()),
+    )
+
+    if due or poll_commands_tick:
+        from main import run_once
+
+        try:
+            out.update(run_once())
+        except Exception as e:
+            out["run_failed"] = f"{type(e).__name__}: {e}"[:200]
+    else:
+        out["idle"] = "nothing due"
 
     # Free APIs, no LLM. Cheap enough that missing a trend costs more than
     # running it does — but hourly rather than half-hourly, since nothing
