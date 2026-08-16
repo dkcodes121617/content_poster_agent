@@ -87,7 +87,7 @@ def _process_commands(config) -> dict:
             else f"❓ {queue_id} is not a pending manual item"
         )
     if replies:
-        send("\n".join(replies), topic="content", dry_run=False, silent=True)
+        send("\n".join(replies), topic="content", audience="content", dry_run=False, silent=True)
     return counters
 
 
@@ -623,18 +623,18 @@ def make_notify(config):
             for reason in item["reasons"][:3]:
                 lines.append(f"      {esc(reason[:150])}")
 
-        send("\n".join(lines), topic="content", dry_run=config.dry_run)
+        send("\n".join(lines), topic="content", audience="content", dry_run=config.dry_run)
 
         # Preview what actually went out, so it can be judged rather than trusted.
         for platform, draft in drafts.items():
             hosted = [u for u in draft.image_urls if u.startswith("http")]
             caption = f"<b>{esc(platform)}</b>\n{esc(draft.caption[:900])}"
             if len(hosted) > 1:
-                send_album(hosted, caption, topic="content", dry_run=config.dry_run)
+                send_album(hosted, caption, topic="content", audience="content", dry_run=config.dry_run)
             elif hosted:
-                send_photo(hosted[0], caption, topic="content", dry_run=config.dry_run)
+                send_photo(hosted[0], caption, topic="content", audience="content", dry_run=config.dry_run)
             else:
-                send(caption, topic="content", dry_run=config.dry_run, silent=True)
+                send(caption, topic="content", audience="content", dry_run=config.dry_run, silent=True)
 
         return {"counters": state.get("counters") or {}}
 

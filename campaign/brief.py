@@ -197,5 +197,5 @@ def send_daily(config, today: date | None = None) -> dict:
         log.exception("could not compose the daily brief")
         return {"brief_sent": 0}
     # Not silent: this is the one message of the day that should make a sound.
-    ok = send(text, topic="content", dry_run=False)
+    ok = send(text, topic="content", audience="content", dry_run=False)
     return {"brief_sent": int(bool(ok))}

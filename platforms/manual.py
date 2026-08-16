@@ -27,6 +27,9 @@ log = logging.getLogger("content_poster.platforms.manual")
 # the agent writes to it rather than assuming a paid account.
 X_TWEET_LIMIT = 280
 
+#: Included with every hand-over so the post carries a route back to the site.
+SITE_URL = "https://wizcodes.site"
+
 
 class ManualPlatform(Platform):
     """Not a publisher. It records the hand-over and reports it."""
@@ -35,8 +38,13 @@ class ManualPlatform(Platform):
     needs_hosted_images = False
 
     def publish(self, draft: Draft) -> PublishResult:
-        tweets = _split_thread(draft.caption) if draft.platform == "x" else [draft.caption]
-        over = [i for i, t in enumerate(tweets, 1) if len(t) > X_TWEET_LIMIT]
+        is_x = draft.platform == "x"
+        tweets = _split_thread(draft.caption) if is_x else [draft.caption]
+        # Only X has a 280 character limit. Applying it to a LinkedIn post —
+        # which is written to about 1300 — produced a warning on every single
+        # item that was not actually a problem, and a warning that is always
+        # wrong is one nobody reads when it is right.
+        over = [i for i, t in enumerate(tweets, 1) if is_x and len(t) > X_TWEET_LIMIT]
 
         blocks = [
             (
@@ -51,11 +59,15 @@ class ManualPlatform(Platform):
             blocks.append(f"<pre>{esc(tweet)}</pre>")
         if draft.hashtags:
             blocks.append("hashtags: " + esc(" ".join(f"#{h.lstrip('#')}" for h in draft.hashtags)))
+        # The link to include in the post. Whoever is posting this by hand is on
+        # a phone, and a post with no route back to the site is reach that
+        # cannot convert.
+        blocks.append(f"link to add: {esc(SITE_URL)}")
         if over:
             blocks.append(
                 f"⚠️ tweet(s) {', '.join(map(str, over))} exceed {X_TWEET_LIMIT} characters"
             )
-        send("\n".join(b for b in blocks if b), topic="content", dry_run=self.config.dry_run)
+        send("\n".join(b for b in blocks if b), topic="content", audience="content", dry_run=self.config.dry_run)
 
         # The images as ACTUAL photos, not links. A hand-posted draft is copied
         # on a phone, and a URL means opening a browser, downloading, then
@@ -65,15 +77,15 @@ class ManualPlatform(Platform):
         if hosted:
             caption = f"images for the {esc(draft.platform)} post above"
             if len(hosted) > 1:
-                send_album(hosted, caption, topic="content", dry_run=self.config.dry_run)
+                send_album(hosted, caption, topic="content", audience="content", dry_run=self.config.dry_run)
             else:
-                send_photo(hosted[0], caption, topic="content", dry_run=self.config.dry_run)
+                send_photo(hosted[0], caption, topic="content", audience="content", dry_run=self.config.dry_run)
 
         queue_id = self._record(draft, tweets)
         if queue_id:
             send(
                 f"Mark done with <code>/done {queue_id}</code> once posted.",
-                topic="content", dry_run=self.config.dry_run, silent=True,
+                topic="content", audience="content", dry_run=self.config.dry_run, silent=True,
             )
         return PublishResult(
             platform=draft.platform,

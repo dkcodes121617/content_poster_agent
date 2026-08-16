@@ -83,6 +83,21 @@ class Config:
         default_factory=lambda: env_list("PLATFORMS_ENABLED", "facebook,threads")
     )
 
+    #: Platforms to hand-post even though an API client exists for them.
+    #:
+    #: LinkedIn is the case this was built for: the integration is finished but
+    #: the access token is still pending, and waiting weeks to start posting
+    #: there costs more than posting by hand does. Listing it here routes its
+    #: drafts through ManualPlatform — written by the agent, delivered to
+    #: Telegram, tracked in `content.manual_queue` like every other manual item.
+    #:
+    #: Explicit rather than "fall back whenever credentials are missing", which
+    #: would silently turn a broken Meta token into a manual queue instead of an
+    #: error. Removing a name here is the whole of switching it to automatic.
+    platforms_manual: list[str] = field(
+        default_factory=lambda: env_list("PLATFORMS_MANUAL", "")
+    )
+
     # ── Meta / Threads / Instagram ──
     meta_app_id: str = env_str("META_APP_ID")
     meta_app_secret: str = env_str("META_APP_SECRET")
@@ -310,6 +325,11 @@ class Config:
             problems.append("PLATFORMS_ENABLED is empty - the run would publish nothing")
 
         for platform in self.active_platforms():
+            # A hand-posted platform needs no API credentials by definition —
+            # that is what makes it hand-posted. Demanding them would make
+            # PLATFORMS_MANUAL unusable for the case it exists for.
+            if platform in self.platforms_manual:
+                continue
             for key in PLATFORM_REQUIREMENTS[platform]:
                 if not env_str(key):
                     problems.append(f"platform '{platform}' needs {key}, which is not set")

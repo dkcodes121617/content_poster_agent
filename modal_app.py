@@ -210,7 +210,16 @@ def _daily_brief() -> dict:
 
 
 def _syndicate() -> dict:
-    return _syndicate()
+    import uuid
+
+    from wizcore.obs.log import setup_logging
+
+    from campaign import syndicate
+    from config import AGENT_NAME, CONFIG
+
+    run_id = str(uuid.uuid4())
+    setup_logging(AGENT_NAME, run_id, CONFIG.log_level)
+    return syndicate.run(CONFIG, run_id)
 
 
 def _trends(mode: str) -> dict:

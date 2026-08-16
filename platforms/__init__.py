@@ -33,6 +33,16 @@ REGISTRY: dict[str, type[Platform]] = {
 
 
 def get_platform(name: str, config) -> Platform:
+    """The client for a platform, or the manual queue if it is hand-posted.
+
+    `PLATFORMS_MANUAL` wins over the registry so a platform with a finished API
+    client can still be posted by hand while its token is pending. Resolving it
+    here rather than at each call site means every path — scheduled posts,
+    timely inserts, previews — agrees on which platforms are automatic, and
+    switching one back is deleting a name from an env var.
+    """
+    if name in getattr(config, "platforms_manual", ()):
+        return ManualPlatform(config)
     return REGISTRY[name](config)
 
 

@@ -87,7 +87,7 @@ def run(config, run_id: str = "") -> dict:
                 f"📰 <b>DRY RUN</b> - would syndicate to dev.to\n"
                 f"{esc(asset['title'])}\ncanonical: {esc(asset['url'])}\n"
                 f"{len(body)} chars of markdown",
-                topic="content", dry_run=True,
+                topic="content", audience="content", dry_run=True,
             )
             counters["syndicated"] = 1
             return counters
@@ -100,7 +100,7 @@ def run(config, run_id: str = "") -> dict:
             send(
                 f"📰 <b>Syndicated to dev.to</b>\n{esc(asset['title'])}\n"
                 f'<a href="{esc(result.permalink)}">{esc(result.permalink)}</a>',
-                topic="content", dry_run=False,
+                topic="content", audience="content", dry_run=False,
             )
         else:
             c.failed(error=result.error)

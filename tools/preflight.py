@@ -80,7 +80,14 @@ def check_config(env: dict[str, str]) -> int:
     # Assert only what the enabled platforms actually need — the whole point of
     # PLATFORMS_ENABLED is that a blocked platform costs nothing.
     enabled = [p.strip() for p in env.get("PLATFORMS_ENABLED", "").split(",") if p.strip()]
+    # A platform listed in PLATFORMS_MANUAL is hand-posted, so it needs no API
+    # credentials — asserting them would block the deploy over a token whose
+    # absence is the entire reason it is being posted by hand.
+    manual = [p.strip() for p in env.get("PLATFORMS_MANUAL", "").split(",") if p.strip()]
     print(f"\n  platforms enabled: {', '.join(enabled) or '(none)'}")
+    if manual:
+        print(f"  hand-posted:       {', '.join(manual)} (no API credentials needed)")
+    enabled = [p for p in enabled if p not in manual]
     # Instagram publishes via its OWN Login path (graph.instagram.com), so what
     # it needs is an Instagram User token, not the Facebook-Page-linked id. The
     # earlier version asserted META_IG_BUSINESS_ACCOUNT_ID here and would have
