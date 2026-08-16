@@ -35,7 +35,16 @@ class ManualPlatform(Platform):
     """Not a publisher. It records the hand-over and reports it."""
 
     name = "manual"
-    needs_hosted_images = False
+    #: True, even though nothing here calls an API that fetches a URL.
+    #:
+    #: The flag gates whether the pipeline renders and uploads the slides at all
+    #: (graph/nodes.py skips rendering entirely when it is False). A hand-posted
+    #: carousel is exactly the case that needs them most — the calendar gives
+    #: LinkedIn an 8-slide slot, and a hand-over with no images is a hand-over
+    #: nobody can act on. Hosting them also gives Telegram real photos to send
+    #: and the dashboard something to link to, instead of a path inside a
+    #: container that stopped existing when the run ended.
+    needs_hosted_images = True
 
     def publish(self, draft: Draft) -> PublishResult:
         is_x = draft.platform == "x"
