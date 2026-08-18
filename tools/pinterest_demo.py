@@ -57,7 +57,14 @@ SANDBOX = "https://api-sandbox.pinterest.com/v5"
 # A real, publicly reachable image. Pinterest FETCHES the URL server-side, so it
 # must be public — a localhost path or a data URI fails with a fetch error that
 # reads like an auth problem and is not one.
-FALLBACK_IMAGE = "https://wizcodes.site/og.png"
+#
+# Verified 200 image/png before this was committed. The obvious guess,
+# /og.png, is a 404 on this site, and a 404 here does not fail until Pinterest
+# tries to fetch it — i.e. in the middle of the recording, which is the worst
+# possible moment to discover it. Client photos under /clients/ are public too
+# and are deliberately NOT used: they are real people who did not agree to
+# appear in a Pinterest demo.
+FALLBACK_IMAGE = "https://wizcodes.site/icon.png"
 
 
 def banner(step: str, title: str) -> None:
