@@ -42,11 +42,31 @@ class Draft:
     body_markdown: str = ""    # dev.to only
     raw: dict = field(default_factory=dict)
 
-    def rendered_caption(self, inline_hashtags: bool = True) -> str:
-        if not (inline_hashtags and self.hashtags):
-            return self.caption
-        tags = " ".join(f"#{t.lstrip('#')}" for t in self.hashtags if t.strip())
-        return f"{self.caption}\n\n{tags}" if tags else self.caption
+    #: Platforms where a link in the body costs more reach than it earns.
+    #:
+    #: LinkedIn measurably suppresses posts carrying an external link in the
+    #: body — that is why `first_comment()` exists — and Instagram captions do
+    #: not linkify at all, so the text would be decoration a reader has to
+    #: retype. Everywhere else the link is the whole point: somebody who wants
+    #: what we build should not have to go looking for us.
+    NO_BODY_LINK = frozenset({"linkedin", "instagram"})
+
+    def rendered_caption(self, inline_hashtags: bool = True, site_url: str = "") -> str:
+        """Caption, then the visit line, then the hashtags.
+
+        Order matters. The call to action reads as the close of the post; put it
+        after the hashtag block and it reads as an afterthought stapled on below
+        a wall of tags.
+        """
+        parts = [self.caption]
+        if site_url and self.platform not in self.NO_BODY_LINK:
+            parts.append(f"Visit us: {site_url}")
+        if inline_hashtags and self.hashtags:
+            tags = " ".join(f"#{t.lstrip('#')}" for t in self.hashtags if t.strip())
+            if tags:
+                parts.append(tags)
+        return "\n\n".join(p for p in parts if p)
+
 
     def first_comment(self) -> str:
         """What belongs under the post rather than in it.

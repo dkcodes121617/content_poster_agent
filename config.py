@@ -79,6 +79,12 @@ class Config:
     site_read_token: str = env_str("SITE_READ_TOKEN")
     site_local_dir: str = env_str("SITE_LOCAL_DIR")
 
+    #: The public site, appended to captions as a "Visit us:" line.
+    #:
+    #: Reach is worth nothing if a reader who wants what we build has to go and
+    #: search for us. Skipped on LinkedIn and Instagram — see Draft.NO_BODY_LINK.
+    site_public_url: str = env_str("SITE_PUBLIC_URL", "https://wizcodes.site")
+
     platforms_enabled: list[str] = field(
         default_factory=lambda: env_list("PLATFORMS_ENABLED", "facebook,threads")
     )

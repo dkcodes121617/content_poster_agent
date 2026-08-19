@@ -28,7 +28,7 @@ class ThreadsPlatform(Platform):
 
     def publish(self, draft: Draft) -> PublishResult:
         token = self.config.live_threads_token
-        text = draft.rendered_caption()
+        text = draft.rendered_caption(site_url=self.config.site_public_url)
 
         params = {"text": text, "access_token": token}
         if draft.image_urls:

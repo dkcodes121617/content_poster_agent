@@ -31,7 +31,7 @@ class FacebookPlatform(Platform):
                     # Meta FETCHES this URL. It is never an upload, which is why
                     # R2 public access is a hard dependency of this path.
                     "url": draft.image_urls[0],
-                    "caption": draft.rendered_caption(),
+                    "caption": draft.rendered_caption(site_url=self.config.site_public_url),
                     "published": "true",
                     "access_token": cfg.meta_page_token,
                 },

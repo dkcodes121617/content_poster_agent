@@ -45,6 +45,8 @@ class LinkedInPlatform(Platform):
         }
         payload = {
             "author": author,
+            # No site_url: LinkedIn suppresses body links, so it goes in the
+            # first comment instead. See Draft.NO_BODY_LINK.
             "commentary": draft.rendered_caption(),
             "visibility": "PUBLIC",
             "distribution": {

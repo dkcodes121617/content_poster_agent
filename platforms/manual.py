@@ -31,6 +31,22 @@ X_TWEET_LIMIT = 280
 SITE_URL = "https://wizcodes.site"
 
 
+#: Where the link goes, per platform, and why.
+#:
+#: Not decoration — this is the difference between reach and reach that earns
+#: something. LinkedIn measurably suppresses posts carrying an external link in
+#: the body, so the link belongs in the first comment: full reach AND a route to
+#: the site. X and Reddit linkify inline and lose nothing by it.
+LINK_PLACEMENT = {
+    "linkedin": ("first comment", "LinkedIn cuts reach on posts with a link in the body - "
+                                  "post it, then add the link as the FIRST COMMENT."),
+    "instagram": ("bio", "Instagram captions are not clickable - the route is the bio link."),
+    "x": ("in the post", "X linkifies inline."),
+    "reddit": ("in the post", "Reddit linkifies inline - but read the subreddit rules first."),
+}
+
+
+
 class ManualPlatform(Platform):
     """Not a publisher. It records the hand-over and reports it."""
 
@@ -68,10 +84,13 @@ class ManualPlatform(Platform):
             blocks.append(f"<pre>{esc(tweet)}</pre>")
         if draft.hashtags:
             blocks.append("hashtags: " + esc(" ".join(f"#{h.lstrip('#')}" for h in draft.hashtags)))
-        # The link to include in the post. Whoever is posting this by hand is on
-        # a phone, and a post with no route back to the site is reach that
-        # cannot convert.
-        blocks.append(f"link to add: {esc(SITE_URL)}")
+        # The link, and WHERE to put it. Whoever is posting this by hand is on a
+        # phone, and a post with no route back to the site is reach that cannot
+        # convert — but the wrong placement costs reach instead, which is worse.
+        where, why = LINK_PLACEMENT.get(draft.platform, ("in the post", ""))
+        blocks.append(f"link ({esc(where)}): {esc(SITE_URL)}")
+        if why:
+            blocks.append(f"  {esc(why)}")
         if over:
             blocks.append(
                 f"⚠️ tweet(s) {', '.join(map(str, over))} exceed {X_TWEET_LIMIT} characters"
