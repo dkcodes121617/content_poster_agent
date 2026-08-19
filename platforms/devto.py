@@ -11,9 +11,38 @@ fires when the blog agent publishes something not yet in
 """
 from __future__ import annotations
 
+import re
+
 from platforms.base import Draft, Platform, PublishResult
 
 _BASE = "https://dev.to/api"
+
+
+
+
+def _tags(raw: list[str]) -> list[str]:
+    """dev.to tags must be alphanumeric — no spaces, no punctuation.
+
+    The previous version lowercased and truncated but kept spaces, so every
+    multi-word tag the campaign produces ("custom crm", "roi calculator") was
+    rejected and took the whole article with it:
+
+        HTTP 422 Tag "custom crm" contains non-alphanumeric or prohibited
+        unicode characters
+
+    Three syndication attempts failed this way, one per day, each looking like
+    a dev.to outage rather than a payload we built wrong.
+
+    Stripping happens BEFORE truncation, which also fixes a second-order
+    silliness: cutting "business intelligence" at 20 characters produced the
+    tag "business intelligenc".
+    """
+    out: list[str] = []
+    for tag in raw:
+        clean = re.sub(r"[^a-z0-9]", "", str(tag).lower())[:20]
+        if clean and clean not in out:
+            out.append(clean)
+    return out[:4]
 
 
 class DevToPlatform(Platform):
@@ -37,7 +66,7 @@ class DevToPlatform(Platform):
                 "body_markdown": draft.body_markdown,
                 # Points search engines back at wizcodes.site.
                 "canonical_url": draft.link,
-                "tags": [t.lstrip("#").lower()[:20] for t in draft.hashtags[:4]],
+                "tags": _tags(draft.hashtags),
             }
         }
         try:
