@@ -149,6 +149,22 @@ SERVICE_NOTE_SOME = (
     "connecting it, but only if it reads as help rather than an advert."
 )
 
+DIVISION_OF_LABOUR = """The caption and the deck must not say the same thing. They have different jobs.
+
+THE DECK carries the substance. The numbers, the steps, the comparison, the
+before and after - whatever the reader came for lands on the slides, because
+that is what gets read, screenshotted and saved.
+
+THE CAPTION earns the tap and carries the search terms. Open with the sharpest
+line you have. Name the topic in the words somebody would actually type when
+looking for it, early, in a sentence that still reads naturally. Then stop -
+short. Do not summarise the deck and do not deliver its payoff; a caption that
+answers the question removes every reason to open the images.
+
+Concretely: if slide 3 says the number, the caption says there is a number
+worth seeing, not what it is."""
+
+
 PLATFORM_BRIEFS = {
     "facebook": "A single short post for a local small-business audience: 40-80 "
                 "words, plain sentences, at most two hashtags. One image.",
@@ -265,6 +281,8 @@ def carousel_spec(archetypes: list[str], budgets_note: bool = True) -> str:
             "image, and one that has to be shrunk to fit no longer looks like the "
             "same design - so an over-long field is rejected rather than squeezed."
         )
+    lines.append("")
+    lines.append(DIVISION_OF_LABOUR)
     lines.append("")
     lines.append(EMPHASIS_RULE)
     return "\n".join(lines)
