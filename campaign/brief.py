@@ -25,6 +25,7 @@ arrives before the work does.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 from wizcore.telegram.send import esc
@@ -188,14 +189,58 @@ def _trends(config) -> str:
 
 
 def send_daily(config, today: date | None = None) -> dict:
-    """Compose and send. Returns counters for the run log."""
+    """Send the brief only when something is actually waiting on a person.
+
+    The brief used to arrive every morning regardless, on the reasoning that a
+    per-post notification says nothing when nothing happens, so a quiet agent and
+    a broken one look identical. That reasoning holds — but the answer to it is
+    the portal, which shows the same three sections on demand and shows them for
+    any day, not just this one.
+
+    What a phone message is uniquely good at is the one section the portal cannot
+    do anything about: drafts that only a human can post. So the brief now fires
+    on that alone. A morning with an empty queue is silent, and silence has a
+    single unambiguous meaning again — there is nothing for you to do.
+
+    `compose()` is untouched and still builds the whole thing; `main.py --brief`
+    prints it on demand, and the portal renders the same sections.
+    """
     from wizcore.telegram.send import send
 
     try:
-        text = compose(config, today)
+        with connect_pending(config) as rows:
+            waiting = list(rows)
     except Exception:
-        log.exception("could not compose the daily brief")
-        return {"brief_sent": 0}
-    # Not silent: this is the one message of the day that should make a sound.
-    ok = send(text, topic="content", audience="content", dry_run=False)
-    return {"brief_sent": int(bool(ok))}
+        log.warning("could not read the manual queue; sending nothing", exc_info=True)
+        return {"brief_sent": 0, "brief_skipped": "queue unreadable"}
+
+    if not waiting:
+        log.info("manual queue is clear; no brief sent")
+        return {"brief_sent": 0, "brief_skipped": "nothing waiting"}
+
+    lines = [
+        f"✍️ <b>{len(waiting)} draft(s) waiting on you</b>",
+        "",
+    ]
+    for row in waiting:
+        when = row["created_at"].strftime("%d %b") if row.get("created_at") else ""
+        lines.append(
+            f"  <code>/done {row['id']}</code> · {esc(row['platform'])} · "
+            f"{esc(row.get('pillar') or '')} · {when}"
+        )
+    lines.append("")
+    lines.append("<i>Full text was sent when each was written. Everything else is in the portal.</i>")
+
+    ok = send("\n".join(lines), topic="content", audience="content", dry_run=False)
+    return {"brief_sent": int(bool(ok)), "brief_waiting": len(waiting)}
+
+
+@contextmanager
+def connect_pending(config):
+    """Pending manual drafts, as a context manager so the connection closes."""
+    from wizcore.db.conn import connect
+
+    from platforms.manual import pending
+
+    with connect(config.database_url) as conn:
+        yield pending(conn, limit=20)

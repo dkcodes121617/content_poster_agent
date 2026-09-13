@@ -300,7 +300,7 @@ def _SHAPES_FOR(archetypes: list[str]) -> str:
         "metric_hero": '{"role":"metric_hero","kicker":"Result","value":"<200ms","label":"median response","body":"..."}',
         "stat_row": '{"role":"stat_row","title":"Where the work has *landed*","stats":[{"value":"26","label":"projects"},{"value":"11","label":"countries"},{"value":"5","label":"open-source tools"}]}',
         "bar_chart": '{"role":"bar_chart","title":"Where the *seconds* went","chart":{"unit":"s","series":[{"label":"Images","value":3.1},{"label":"Scripts","value":1.8},{"label":"Fonts","value":0.7}]}}',
-        "comparison_bar": '{"role":"comparison_bar","title":"Two ways to *start*","chart":{"unit":" weeks","series":[{"label":"Working prototype","value":1},{"label":"Paid discovery","value":4}]}}',
+        "comparison_bar": '{"role":"comparison_bar","title":"Two ways to *start*","chart":{"unit":"weeks","series":[{"label":"Working prototype","value":1},{"label":"Paid discovery","value":4}]}}',
         "donut": '{"role":"donut","title":"Already on a *phone*","chart":{"value":78,"label":"of sessions on mobile"}}',
         "statement": '{"role":"statement","kicker":"The problem","title":"The booking page worked. *Nobody used it.*","body":"..."}',
         "steps": '{"role":"steps","title":"The *free prototype*","steps":[{"title":"You describe it","detail":"One call."},{"title":"We build it","detail":"Working, not a mockup."},{"title":"You decide","detail":"Or walk away."}]}',

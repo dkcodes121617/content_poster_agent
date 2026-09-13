@@ -15,7 +15,6 @@ from __future__ import annotations
 import re
 
 import pytest
-
 from wizcore.telegram.send import _MAX, _chunks, _open_tags
 
 TAGS = ("pre", "code", "b", "i", "u", "s", "blockquote")

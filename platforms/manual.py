@@ -34,12 +34,24 @@ SITE_URL = "https://wizcodes.site"
 #: Where the link goes, per platform, and why.
 #:
 #: Not decoration — this is the difference between reach and reach that earns
-#: something. LinkedIn measurably suppresses posts carrying an external link in
-#: the body, so the link belongs in the first comment: full reach AND a route to
-#: the site. X and Reddit linkify inline and lose nothing by it.
+#: something.
+#:
+#: LinkedIn changed here and the old advice is now backwards. Putting the link in
+#: the first comment WAS the standard workaround for body-link suppression; as of
+#: 2026 LinkedIn detects and penalises that too, so the comment trick now costs
+#: reach instead of saving it. What the algorithm rewards is zero-click: the post
+#: has to BE the value rather than tease it. So LinkedIn gets no link at all, in
+#: the body or under it, and the route back to the site is the page itself —
+#: which is why this is the one platform where the copy must stand alone.
 LINK_PLACEMENT = {
-    "linkedin": ("first comment", "LinkedIn cuts reach on posts with a link in the body - "
-                                  "post it, then add the link as the FIRST COMMENT."),
+    "linkedin": (
+        "nowhere",
+        (
+            "Post NO link - not in the body and not in the first comment. "
+            "LinkedIn penalises both. Let the post stand alone; the profile "
+            "is the route."
+        ),
+    ),
     "instagram": ("bio", "Instagram captions are not clickable - the route is the bio link."),
     "x": ("in the post", "X linkifies inline."),
     "reddit": ("in the post", "Reddit linkifies inline - but read the subreddit rules first."),

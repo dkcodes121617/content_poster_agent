@@ -14,7 +14,6 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-
 from wizcore.llm.client import LLMClient, LLMError, LLMTransient
 
 _OK_BODY = json.dumps(
@@ -69,7 +68,7 @@ def _call(script):
         error = None
         try:
             client.complete(system="s", user="u", max_tokens=16)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             error = exc
         return server, error
     finally:

@@ -196,20 +196,33 @@ def check_meta(config) -> dict:
 
 
 def refresh_all(config) -> dict:
-    """Rotate every rotatable token and check the rest. Never raises.
+    """Rotate every token we hold credentials for. Never raises.
 
-    Only touches platforms that are actually enabled — a disabled platform's
-    stale credential should not generate a weekly alert nobody can act on.
+    Rotation follows the CREDENTIAL, not `PLATFORMS_ENABLED`. It used to follow
+    the platform list, on the reasoning that a disabled platform's stale token
+    should not raise an alert nobody can act on. That reasoning was right about
+    alerts and wrong about rotation, and the difference cost the Pinterest
+    integration:
+
+      17 Aug  Pinterest publishing starts failing (403 - Trial access)
+      17 Aug  `pinterest` removed from PLATFORMS_ENABLED while access is sought
+      17 Aug  ...which also silently stopped the weekly refresh
+      16 Sep  the 30-day access token would have died
+      16 Oct  the 60-day refresh token dies -> full manual OAuth to recover
+
+    A platform is disabled precisely when it is mid-approval, mid-outage or
+    mid-migration — exactly when you most need its credential to still be alive
+    on the day it comes back. So: rotate whatever we have keys for, and let
+    `alert_if_needed` decide what is worth a human's attention.
     """
-    enabled = set(config.active_platforms())
     results = []
-    if "instagram" in enabled:
+    if config.token("INSTAGRAM_APP_ACCESS_TOKEN"):
         results.append(refresh_instagram(config))
-    if "threads" in enabled:
+    if config.token("THREADS_ACCESS_TOKEN"):
         results.append(refresh_threads(config))
-    if "pinterest" in enabled:
+    if config.pinterest_refresh_token or config.token("PINTEREST_REFRESH_TOKEN"):
         results.append(refresh_pinterest(config))
-    if "facebook" in enabled:
+    if config.meta_page_token:
         results.append(check_meta(config))
 
     failed = [r for r in results if not r.get("ok")]

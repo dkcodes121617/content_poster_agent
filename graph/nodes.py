@@ -21,7 +21,7 @@ from wizcore.facts.site import SiteReader
 from wizcore.facts.snapshot import build_snapshot
 from wizcore.llm.client import LLMClient, extract_json
 from wizcore.obs.log import log_event
-from wizcore.telegram.send import esc, send, send_album, send_photo
+from wizcore.telegram.send import esc, send
 
 from campaign import keywords, regions
 from campaign.calendar import boost_active, due_slots, ist_now
@@ -601,21 +601,40 @@ def make_notify(config):
     def notify(state):
         results = state.get("results") or []
         rejected = state.get("rejected") or []
-        drafts = {d.platform: d for d in (state.get("drafts") or [])}
 
         if not results and not rejected:
             log.info("nothing due; staying silent")
             return {"counters": state.get("counters") or {}}
 
-        lines = ["📣 <b>Content Poster</b>"]
-        for r in results:
-            if r.skipped:
-                lines.append(f"  ⏭ {esc(r.platform)} - {esc(r.error)}")
-            elif r.ok:
-                link = f' <a href="{esc(r.permalink)}">link</a>' if r.permalink else ""
-                lines.append(f"  ✅ {esc(r.platform)}{link}")
-            else:
-                lines.append(f"  ❌ {esc(r.platform)}: {esc(r.error[:200])}")
+        # ── Only speak when a human has something to do ──
+        #
+        # This used to send, on every publishing run: a summary line per platform
+        # INCLUDING the successes, then a photo or album preview of every draft
+        # that went out. At five posts a day across platforms, with albums
+        # counting as several sends and a two-recipient fan-out on
+        # TELEGRAM_CHAT_ID, that was most of the ~500 messages a day arriving in
+        # the channel.
+        #
+        # A successful post is not an interruption. It is already in
+        # content.social_posts with its permalink, the portal reads that table,
+        # and nothing about seeing it on a phone at 21:00 changes what anyone
+        # does next. A FAILED post is different: it means a slot was lost and the
+        # cause is usually a credential or a platform change that only a person
+        # can fix.
+        #
+        # So the rule is: failures and validator rejections speak, successes do
+        # not, and the previews are gone entirely. If the copy needs reviewing,
+        # it is reviewed in the portal against every other post, not one photo at
+        # a time as it scrolls past.
+        failed = [r for r in results if not r.ok and not r.skipped]
+        if not failed and not rejected:
+            published = [r.platform for r in results if r.ok]
+            log.info("published %s; nothing needs attention, staying silent", published)
+            return {"counters": state.get("counters") or {}}
+
+        lines = ["⚠️ <b>Content Poster needs attention</b>"]
+        for r in failed:
+            lines.append(f"  ❌ {esc(r.platform)}: {esc(r.error[:200])}")
         for item in rejected:
             lines.append(
                 f"  🚫 {esc(item['platform'])} ({esc(item['pillar'])}) rejected by validators"
@@ -623,19 +642,12 @@ def make_notify(config):
             for reason in item["reasons"][:3]:
                 lines.append(f"      {esc(reason[:150])}")
 
+        ok_now = [r.platform for r in results if r.ok]
+        if ok_now:
+            lines.append("")
+            lines.append(f"<i>Published fine this run: {esc(', '.join(ok_now))}</i>")
+
         send("\n".join(lines), topic="content", audience="content", dry_run=config.dry_run)
-
-        # Preview what actually went out, so it can be judged rather than trusted.
-        for platform, draft in drafts.items():
-            hosted = [u for u in draft.image_urls if u.startswith("http")]
-            caption = f"<b>{esc(platform)}</b>\n{esc(draft.caption[:900])}"
-            if len(hosted) > 1:
-                send_album(hosted, caption, topic="content", audience="content", dry_run=config.dry_run)
-            elif hosted:
-                send_photo(hosted[0], caption, topic="content", audience="content", dry_run=config.dry_run)
-            else:
-                send(caption, topic="content", audience="content", dry_run=config.dry_run, silent=True)
-
         return {"counters": state.get("counters") or {}}
 
     return notify

@@ -100,10 +100,25 @@
     // The numbers are grounded upstream: validators/slides.py lifts them out and
     // wizcore's grounding gate checks them against the same corpora as prose. A
     // chart is just a number with a bigger font.
+    // A unit that is a WORD needs a space; a unit that is a SYMBOL must not have
+    // one. "45%" and "3.1s" are right; "6projects" is what shipped to Instagram
+    // on 11 Sep, on every bar of the chart.
+    //
+    // The contract used to be that the model types the leading space itself
+    // ("unit": " weeks"), which is invisible in JSON, unenforced by any
+    // validator, and wrong the first time a model writes "projects". Deciding it
+    // here from the unit's own first character means it cannot be got wrong.
     function fmt(n, unit) {
       const v = Number(n);
-      const s = Number.isInteger(v) ? String(v) : String(v);
-      return s + (unit || '');
+      const s = String(v);
+      const u = unit || '';
+      if (!u) return s;
+      // A word of two or more letters gets a space ("6 projects", "5 hrs").
+      // A single letter stays tight, because that is how units are written:
+      // "3.1s", "12x", "40k" - never "3.1 s". Symbols (%, x, °) and a unit that
+      // already carries its own leading space are left exactly as given.
+      const needsSpace = /^[A-Za-z]{2}/.test(u);
+      return s + (needsSpace ? ' ' : '') + u;
     }
 
     function barChart(chart, opts) {

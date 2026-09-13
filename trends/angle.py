@@ -220,7 +220,11 @@ def run(config, budget=None) -> dict:
             counters["angle_failed"] += 1
             continue
 
-        _save(config, item, angle, sources)
+        if not _save(config, item, angle, sources):
+            store.mark(config, item["id"], "rejected", item.get("relevance"),
+                       "no claim cited a captured source")
+            counters["angle_failed"] += 1
+            continue
         store.mark(config, item["id"], "angled", item.get("relevance"), "")
         counters["angles"] += 1
 
@@ -228,11 +232,61 @@ def run(config, budget=None) -> dict:
     return counters
 
 
-def _save(config, item: dict, angle: dict, sources: list[dict]) -> None:
+def citation_for(angle: dict, sources: list[dict]) -> str:
+    """The source the CLAIMS came from. Empty string if that cannot be established.
+
+    This used to be `sources[0]` — the first source captured for the trend item,
+    chosen with no reference to what the post actually asserts. The two are
+    frequently different things, because one trend item can carry several
+    captured sources and the writer cites whichever ones support its claims. The
+    result was a citation that contradicted the post, on 36% of angles:
+
+        published 12 Sep, Threads
+          post   "...on Magento, check your version today. A zero-day lets
+                  attackers inject code through failed payment emails -
+                  confirmed on 2.4.7, 2.4.8, and 2.4.9."
+          reply  "Source: securityweek.com/androids-september-2026-updates-
+                  patch-180-vulnerabilities/"        <- an Android article
+          claims all three cited the correct Adobe Commerce piece
+
+    Others cited linkedin.com and instagram.com — a social post standing in as
+    the source for a factual claim. The claim URLs were right the whole time; only
+    the line shown to the public was wrong, which is the worst version of this
+    bug, because every internal gate passed.
+
+    Deriving the citation FROM the claims makes the mismatch impossible rather
+    than merely detectable. The URL must also be one we actually captured: the
+    capture IS the verification (see trends/verify.py), so citing a URL we never
+    fetched would be asserting that something resolves without having checked.
+    """
+    from collections import Counter
+
+    by_url = {s.get("url"): s for s in sources if s.get("url")}
+    cited = Counter(
+        c.get("source_url")
+        for c in (angle.get("claims") or [])
+        if isinstance(c, dict) and c.get("source_url") in by_url
+    )
+    if not cited:
+        return ""
+    url, _ = cited.most_common(1)[0]
+    src = by_url[url]
+    publisher = src.get("publisher") or src.get("title") or "source"
+    return f"{publisher} - {url}"
+
+
+def _save(config, item: dict, angle: dict, sources: list[dict]) -> bool:
     from wizcore.db.conn import connect
 
-    primary = sources[0]
-    citation = f"{primary.get('publisher') or primary.get('title') or 'source'} - {primary['url']}"
+    citation = citation_for(angle, sources)
+    if not citation:
+        # No claim points at a source we captured. Publishing this would put a
+        # "Source:" line under the post that supports none of what it says.
+        log.warning(
+            "trend %s: no claim cites a captured source - refusing to save the angle",
+            item["id"],
+        )
+        return False
     good_for = [p for p in (angle.get("good_for") or []) if isinstance(p, str)]
     try:
         with connect(config.database_url, autocommit=True) as conn, conn.cursor() as cur:
@@ -254,8 +308,10 @@ def _save(config, item: dict, angle: dict, sources: list[dict]) -> None:
                     config.trend_angle_ttl_hours,
                 ),
             )
+        return True
     except Exception:
         log.error("could not save angle for trend %s", item["id"], exc_info=True)
+        return False
 
 
 def ready_angle(config, platform: str) -> dict | None:

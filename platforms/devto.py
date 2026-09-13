@@ -17,6 +17,9 @@ from platforms.base import Draft, Platform, PublishResult
 
 _BASE = "https://dev.to/api"
 
+#: dev.to's own ceiling for a single tag.
+_MAX_TAG = 20
+
 
 
 
@@ -36,12 +39,28 @@ def _tags(raw: list[str]) -> list[str]:
     Stripping happens BEFORE truncation, which also fixes a second-order
     silliness: cutting "business intelligence" at 20 characters produced the
     tag "business intelligenc".
+
+    ## Why an over-long tag is now DROPPED rather than truncated
+
+    Truncating produced tags nobody follows. dev.to distributes by tag feed, so a
+    tag is only worth carrying if it already exists — and "contentrecommendatio",
+    "digitaltransformatio" and "mobilegamedevelopmen" exist nowhere, follow
+    nobody, and read as a bug to anyone who sees them. The distribution cost is
+    measurable in our own numbers: the articles that used real tags (fastapi ·
+    django · pythonframeworks, customsoftware · ai, mobile · engineering) earned
+    83, 36 and 30 views; every article whose tags were invented earned zero.
+
+    A dropped tag costs one slot out of four. A truncated tag costs the slot too,
+    AND ships a visible defect, so there was never a trade here.
     """
     out: list[str] = []
     for tag in raw:
-        clean = re.sub(r"[^a-z0-9]", "", str(tag).lower())[:20]
-        if clean and clean not in out:
-            out.append(clean)
+        clean = re.sub(r"[^a-z0-9]", "", str(tag).lower())
+        # Over the limit means the word did not survive the strip intact; a
+        # clipped tag is worse than no tag.
+        if not clean or len(clean) > _MAX_TAG or clean in out:
+            continue
+        out.append(clean)
     return out[:4]
 
 
