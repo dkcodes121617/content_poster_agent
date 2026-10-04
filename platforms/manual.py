@@ -201,10 +201,46 @@ def pending(conn, limit: int = 50) -> list[dict]:
 
 
 def mark_done(conn, queue_id: int) -> bool:
+    """`/done <id>`: the human posted it, so the post row becomes 'published'.
+
+    The second UPDATE is what migration 009 promised and nothing did: a hand-off
+    is recorded as 'queued' when drafted and only counts as published - in the
+    portal, the brief and every reach number - once somebody says it went out.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE content.manual_queue SET status = 'done', done_at = now() "
             "WHERE id = %s AND status = 'pending'",
             (queue_id,),
         )
-        return cur.rowcount > 0
+        done = cur.rowcount > 0
+        if done:
+            cur.execute(
+                "UPDATE content.social_posts SET status = 'published' "
+                "WHERE external_post_id = %s AND status = 'queued'",
+                (f"manual:{queue_id}",),
+            )
+        return done
+
+
+def expire_stale(conn, days: int = 7) -> int:
+    """Retire hand-off drafts nobody posted within `days`. Returns how many.
+
+    Their post rows move 'queued' -> 'skipped' in the same transaction, so an
+    expired draft can never be counted as reach.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE content.manual_queue SET status = 'expired' "
+            "WHERE status = 'pending' AND created_at < now() - make_interval(days => %s) "
+            "RETURNING id",
+            (days,),
+        )
+        ids = [f"manual:{r['id']}" for r in cur.fetchall()]
+        if ids:
+            cur.execute(
+                "UPDATE content.social_posts SET status = 'skipped' "
+                "WHERE external_post_id = ANY(%s) AND status IN ('queued', 'published')",
+                (ids,),
+            )
+        return len(ids)

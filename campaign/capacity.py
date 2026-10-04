@@ -145,8 +145,9 @@ def posted_today(config, platform: str, today: date | None = None) -> int:
     try:
         with connect(config.database_url) as conn, conn.cursor() as cur:
             cur.execute(
+                # A queued hand-off takes today's slot as surely as a live post.
                 "SELECT count(*) AS n FROM content.social_posts "
-                "WHERE platform = %s AND status = 'published' "
+                "WHERE platform = %s AND status IN ('published', 'queued') "
                 "AND published_at::date = %s",
                 (platform, today or today_ist()),
             )

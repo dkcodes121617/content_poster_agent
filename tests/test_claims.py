@@ -97,3 +97,44 @@ def test_reasons_are_deduplicated():
 def test_empty_input_passes():
     assert claims.check("") == []
     assert claims.check("   ") == []
+
+
+# Published before the ordinal rule existed - verbatim from content.social_posts.
+# None says "in two weeks", so the duration pattern never saw them.
+REJECT_SCHEDULE = [
+    (
+        "A free prototype before hiring a developer means you see the thing working "
+        "before any contract exists. Week one: we map the problem. Week two: we build "
+        "a clickable version of the core flow. Week three: you decide."
+    ),
+    (
+        "A founder-run software studio doesn't pitch you a spec and disappear for three "
+        "months. You see the prototype in week two, decide in week three, and own the "
+        "finished build by week six."
+    ),
+    (
+        "We spec the prototype in week one, deliver it in week two, and only start the "
+        "contract once you've seen the thing work."
+    ),
+    "A free prototype before hiring a developer means you see the thing working in week one.",
+]
+
+# "day one" as "from the start" is the ownership promise, not a schedule.
+ALLOW_DAY_ONE = [
+    (
+        "Built for LeoTech in the US, deployed to their own infrastructure, and owned "
+        "outright from day one."
+    ),
+    "We hand over repos, credentials, and deployment access on day one.",
+    "Week one of a typical agency engagement is discovery and a slide deck.",
+]
+
+
+@pytest.mark.parametrize("text", REJECT_SCHEDULE)
+def test_rejects_ordinal_delivery_schedules(text):
+    assert claims.check(text), f"should have been rejected: {text!r}"
+
+
+@pytest.mark.parametrize("text", ALLOW_DAY_ONE)
+def test_day_one_as_from_the_start_is_allowed(text):
+    assert claims.check(text) == [], f"should have passed: {text!r}\n{claims.check(text)}"

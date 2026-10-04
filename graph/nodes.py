@@ -571,6 +571,22 @@ def _mark_angle_used(config, draft: Draft) -> None:
     angle_mod.mark_used(config, angle_id, draft.platform)
 
 
+def _post_status(result) -> str:
+    """'queued' for a hand-off, 'published' only for something actually live.
+
+    A manual platform "succeeds" the moment its draft is queued for a person.
+    Recording that as 'published' is how 39 LinkedIn and X rows written after
+    migration 009 again claimed to be live while their drafts sat unposted -
+    the portal and every reach count included them. `/done` (manual.mark_done)
+    is what moves a queued row to published.
+    """
+    if not result.ok:
+        return "failed"
+    if (result.external_id or "").startswith("manual:"):
+        return "queued"
+    return "published"
+
+
 def _record(config, state, draft: Draft, result) -> None:
     """Write the local record. Never fails the publish that already happened."""
     try:
@@ -586,7 +602,7 @@ def _record(config, state, draft: Draft, result) -> None:
                     draft.platform,
                     result.external_id or None,
                     result.permalink or None,
-                    "published" if result.ok else "failed",
+                    _post_status(result),
                     result.error or None,
                     draft.caption,
                     draft.pillar,

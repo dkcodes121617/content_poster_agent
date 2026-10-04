@@ -65,8 +65,10 @@ def recent_posts(config, limit: int = 60) -> list[str]:
         with connect(config.database_url, autocommit=True) as conn:
             rows = fetch_all(
                 conn,
+                # Queued hand-offs count: their copy is one tap from going live,
+                # so a near-duplicate of one is a duplicate.
                 "SELECT caption FROM content.social_posts "
-                "WHERE status = 'published' AND caption IS NOT NULL "
+                "WHERE status IN ('published', 'queued') AND caption IS NOT NULL "
                 "ORDER BY published_at DESC LIMIT %s",
                 (limit,),
             )
@@ -76,7 +78,27 @@ def recent_posts(config, limit: int = 60) -> list[str]:
         return []
 
 
+_OPENER_WORDS = 5
+
+
+def opener(text: str, words: int = _OPENER_WORDS) -> str:
+    """The first few words, normalised - the part a feed actually shows."""
+    return " ".join(re.findall(r"[a-z0-9']+", (text or "").lower())[:words])
+
+
 def check(text: str, history: list[str], threshold: float = 0.86) -> list[str]:
+    # Whole-post similarity cannot see a recycled opener: 26 posts beginning
+    # "AI tools for small business owners..." each had a different body and all
+    # passed. The opener is what shows in the feed and on the profile grid, so a
+    # repeated one reads as automation even when the rest is new.
+    first = opener(text)
+    if len(first.split()) == _OPENER_WORDS:
+        for previous in history:
+            if opener(previous) == first:
+                return [(
+                    f'opens with the same words as a recent post ("{first}...") - '
+                    "open on a different hook"
+                )]
     worst = 0.0
     for previous in history:
         worst = max(worst, similarity(text, previous))

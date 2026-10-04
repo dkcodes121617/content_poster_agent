@@ -181,7 +181,26 @@ def pick(
 
 
 def brief(phrase: Phrase, platform: str) -> str:
-    """The instruction that goes into the prompt. Never 'use this keyword'."""
+    """The instruction that goes into the prompt. Never 'use this keyword'.
+
+    Only LinkedIn and dev.to get the phrase as the opening words, because only
+    there do those words become the URL. Everywhere else the phrase is welcome
+    in the first two sentences but never as the first words: asking for it as
+    the opener on every platform is what produced 26 Threads/LinkedIn posts that
+    began "AI tools for small business owners..." and 23 that began "LLM
+    integration for a SaaS product...", which reads as a bot to anyone who
+    opens the profile.
+    """
+    if platform not in SLUG_PLATFORMS:
+        return (
+            "SEARCH PHRASE (OPTIONAL, NOT THE OPENER)\n"
+            f'  "{phrase.text}"\n\n'
+            "  Open on a hook instead: the specific problem in the reader's own "
+            "words, the one surprising fact from the sources, or the question they "
+            "are already asking. If the phrase fits, use it or a natural variation "
+            "once in the first two sentences - never as the first words of the "
+            "post, and never as a heading."
+        )
     slug_note = (
         f"\n  On {platform}, the post's public URL is built from these opening words, "
         "so they are also the page's address in search results."

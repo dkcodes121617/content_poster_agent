@@ -89,6 +89,17 @@ _DURATION = re.compile(
     re.I | re.X,
 )
 
+# Ordinal schedules: "Week one: we map the problem. Week two: the clickable
+# prototype in your inbox. Week three: you decide." None of it says "in two
+# weeks", so _DURATION never saw it, and 14 published posts carried a staged
+# week-by-week plan - one ending "own the finished build by week six".
+_ORDINAL_MARK = re.compile(
+    r"\b(?:(?:week|day|month|sprint)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)"
+    r"|(?:first|second|third|fourth|fifth|sixth)\s+(?:week|month)"
+    r"|by\s+(?:week|day|month)\s+\w+)\b",
+    re.I,
+)
+
 # A duration only matters when it is a duration *of delivering something*.
 _DELIVERY_CONTEXT = re.compile(
     r"\b(?:deliver\w*|ship\w*|build\w*|built|launch\w*|prototype|mvp|turnaround|"
@@ -137,8 +148,38 @@ def check(text: str) -> list[str]:
     if not text or not text.strip():
         return reasons
 
+    # Two different stage markers anywhere in our own copy ("week one" ...
+    # "week two") are a schedule, whatever each sentence says on its own.
+    marks = {
+        m.group(0).lower()
+        for s in _sentences(text) if _about(s) != "theirs"
+        for m in _ORDINAL_MARK.finditer(s)
+    }
+    if len(marks) >= 2:
+        reasons.append(
+            f"{' / '.join(sorted(marks))} lays out a delivery schedule. Describe the "
+            "steps in order without tying them to weeks or days - how long a build "
+            "takes always depends on the requirements."
+        )
+
     for sentence in _sentences(text):
         who = _about(sentence)
+
+        if who != "theirs" and len(marks) < 2 and _DELIVERY_CONTEXT.search(sentence):
+            # A lone "day one" means "from the start" - "owned outright from day
+            # one", "we hand over the repos on day one" - which is the ownership
+            # promise, not a schedule. Inside a staged plan it is still caught
+            # by the two-marker rule above.
+            match = next(
+                (m for m in _ORDINAL_MARK.finditer(sentence)
+                 if not re.fullmatch(r"day\s+(?:one|1)", m.group(0), re.I)),
+                None,
+            )
+            if match:
+                reasons.append(
+                    f"{match.group(0)!r} ties a delivery to a point in time. Describe the "
+                    "process without attaching a duration to it."
+                )
 
         for match in _HARD_PROMISE.finditer(sentence):
             reasons.append(

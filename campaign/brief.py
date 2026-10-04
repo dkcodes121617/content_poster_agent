@@ -45,6 +45,7 @@ def compose(config, today: date | None = None) -> str:
         f"🌅 <b>{_DAYS[today.weekday()]} {today:%d %b %Y}</b>",
         _phase_line(config, today),
         "",
+        _health_section(config),
         _yesterday(config, today),
         "",
         _plan(config, today),
@@ -68,6 +69,37 @@ def _phase_line(config, today: date) -> str:
     if config.dry_run:
         bits.append("🧪 <b>DRY RUN</b> - nothing is actually published")
     return " · ".join(bits)
+
+
+# ── 0. what is still broken ──────────────────────────────────────────────────
+def _health_lines(config) -> list[str]:
+    """Problems still true right now, across all three agents. Never raises."""
+    from campaign import health
+
+    snapshot = None
+    try:
+        from wizcore.facts.site import SiteReader
+        from wizcore.facts.snapshot import build_snapshot
+
+        snapshot = build_snapshot(SiteReader(
+            repo=config.site_repo, token=config.site_read_token,
+            ref=config.site_branch, local_dir=config.site_local_dir or None,
+        ))
+    except Exception:
+        # The blog line falls back to the dev.to syndication log.
+        log.warning("could not read the site for the health check", exc_info=True)
+    try:
+        return health.check(config, snapshot)
+    except Exception:
+        log.warning("health check failed", exc_info=True)
+        return []
+
+
+def _health_section(config) -> str | None:
+    lines = _health_lines(config)
+    if not lines:
+        return None
+    return "\n".join(["🚨 <b>Needs attention</b>", *(f"  {esc(x)}" for x in lines), ""])
 
 
 # ── 1. yesterday ─────────────────────────────────────────────────────────────
@@ -207,40 +239,64 @@ def send_daily(config, today: date | None = None) -> dict:
     """
     from wizcore.telegram.send import send
 
+    # The "still broken" list is the other thing only a person can act on, and
+    # the reason the brief may now fire with an empty queue: a dead lead source
+    # or a crashing agent used to be announced once and then never again.
+    health = _health_lines(config)
+
+    expired = 0
     try:
-        with connect_pending(config) as rows:
+        with connect_pending(config, expire=True) as rows:
             waiting = list(rows)
+            expired = getattr(rows, "expired", 0)
     except Exception:
-        log.warning("could not read the manual queue; sending nothing", exc_info=True)
-        return {"brief_sent": 0, "brief_skipped": "queue unreadable"}
+        log.warning("could not read the manual queue", exc_info=True)
+        waiting = []
 
-    if not waiting:
-        log.info("manual queue is clear; no brief sent")
-        return {"brief_sent": 0, "brief_skipped": "nothing waiting"}
+    if not waiting and not health:
+        log.info("nothing broken and manual queue is clear; no brief sent")
+        return {"brief_sent": 0, "brief_skipped": "nothing waiting", "drafts_expired": expired}
 
-    lines = [
-        f"✍️ <b>{len(waiting)} draft(s) waiting on you</b>",
-        "",
-    ]
-    for row in waiting:
-        when = row["created_at"].strftime("%d %b") if row.get("created_at") else ""
-        lines.append(
-            f"  <code>/done {row['id']}</code> · {esc(row['platform'])} · "
-            f"{esc(row.get('pillar') or '')} · {when}"
-        )
-    lines.append("")
-    lines.append("<i>Full text was sent when each was written. Everything else is in the portal.</i>")
+    lines: list[str] = []
+    if health:
+        lines += ["🚨 <b>Needs attention</b>", *(f"  {esc(x)}" for x in health), ""]
+    if waiting:
+        lines += [f"✍️ <b>{len(waiting)} draft(s) waiting on you</b>", ""]
+        for row in waiting:
+            when = row["created_at"].strftime("%d %b") if row.get("created_at") else ""
+            lines.append(
+                f"  <code>/done {row['id']}</code> · {esc(row['platform'])} · "
+                f"{esc(row.get('pillar') or '')} · {when}"
+            )
+        lines.append("")
+        lines.append("<i>Full text was sent when each was written. Drafts expire after "
+                     "7 days.</i>")
 
     ok = send("\n".join(lines), topic="content", audience="content", dry_run=False)
-    return {"brief_sent": int(bool(ok)), "brief_waiting": len(waiting)}
+    return {"brief_sent": int(bool(ok)), "brief_waiting": len(waiting),
+            "brief_problems": len(health), "drafts_expired": expired}
+
+
+class _Pending(list):
+    """The pending rows, plus how many stale drafts were expired on the way."""
+
+    expired: int = 0
 
 
 @contextmanager
-def connect_pending(config):
-    """Pending manual drafts, as a context manager so the connection closes."""
+def connect_pending(config, expire: bool = False):
+    """Pending manual drafts, as a context manager so the connection closes.
+
+    With `expire`, drafts older than a week are retired first. They are copy
+    about a moment that has passed, and without this the queue only ever grew:
+    40 LinkedIn drafts were pending by 4 Oct and the brief listed them daily.
+    """
     from wizcore.db.conn import connect
 
-    from platforms.manual import pending
+    from platforms.manual import expire_stale, pending
 
     with connect(config.database_url) as conn:
-        yield pending(conn, limit=20)
+        expired = expire_stale(conn) if expire else 0
+        rows = _Pending(pending(conn, limit=20))
+        rows.expired = expired
+        yield rows

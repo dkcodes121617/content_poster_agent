@@ -20,7 +20,11 @@ log = logging.getLogger("content_poster.platforms.linkedin")
 
 _BASE = "https://api.linkedin.com/rest"
 # LinkedIn versions its API by date header and rejects requests without one.
-_VERSION = "202506"
+# Each monthly version is sunset about a year after release - 202506 was already
+# retired by Oct 2026 (202510 sunsets 15 Oct 2026) - so a version pinned at
+# build time silently becomes a 100%-failure publisher. Keep in step with
+# tools/linkedin_auth.py.
+_VERSION = "202609"
 
 
 class LinkedInPlatform(Platform):
