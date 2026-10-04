@@ -40,7 +40,7 @@ image = (
     .add_local_python_source("wizcore")
     .add_local_python_source(
         "config", "main", "campaign", "graph", "imaging", "platforms", "prompts",
-        "validators", "trends",
+        "validators", "trends", "design",
     )
     # tools/render.py is loaded by path at runtime, so it has to be present as a
     # file rather than as an imported module.
@@ -501,3 +501,76 @@ def _meta_check(config) -> list[tuple]:
 @app.local_entrypoint()
 def cli(dry_run: bool = True, force: str = ""):
     print(manual.remote(dry_run=dry_run, force=force))
+
+
+# ── design lab ───────────────────────────────────────────────────────────────
+# Renders design-engine test matrices in the cloud - Chromium never runs on the
+# owner's machine. No secrets: the lab only draws fixture content.
+@app.function(image=image, timeout=3600, cpu=4.0, memory=6144)
+def design_lab(payload_json: str) -> bytes:
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from design.lab import run_round
+
+    items = [tuple(x) for x in json.loads(payload_json)]
+    with tempfile.TemporaryDirectory() as tmp:
+        return run_round(items, Path(tmp))
+
+
+@app.local_entrypoint()
+def lab_cli(round: str = "formats", out: str = "output/lab", only: str = ""):
+    """modal run modal_app.py::lab_cli --round formats [--only cheat_sheet,stat]"""
+    import io
+    import json
+    import zipfile
+    from pathlib import Path
+
+    from design.lab import build_round
+
+    items = build_round(round)
+    if only:
+        keep = {o.strip() for o in only.split(",") if o.strip()}
+        items = [it for it in items if it[0].replace("HOSTILE ", "").split("/")[0] in keep]
+    print(f"rendering {len(items)} slide(s) for round {round!r} on Modal ...")
+    data = design_lab.remote(json.dumps(items))
+    dest = Path(out) / round
+    dest.mkdir(parents=True, exist_ok=True)
+    zipfile.ZipFile(io.BytesIO(data)).extractall(dest)
+    audits = json.loads((dest / "audits.json").read_text(encoding="utf-8"))
+    bad = [a for a in audits if a.get("errors")]
+    warn = [a for a in audits if a.get("warnings") and not a.get("errors")]
+    print(f"done: {len(audits)} rendered, {len(bad)} with errors, {len(warn)} with warnings -> {dest}")
+    for a in bad[:40]:
+        print(f"  ERR #{a['index']} {a['label']}: {'; '.join(a['errors'])[:220]}")
+
+
+@app.local_entrypoint()
+def render_cli(items: str, out: str = ""):
+    """modal run modal_app.py::render_cli --items output/design_e2e_<stamp>/items.json
+
+    Renders [label, payload] items written by tools/design_e2e.py on Modal and
+    unpacks PNG thumbnails, contact sheets and audits next to them.
+    """
+    import io
+    import json
+    import zipfile
+    from pathlib import Path
+
+    src = Path(items)
+    data = json.loads(src.read_text(encoding="utf-8"))
+    print(f"rendering {len(data)} slide(s) on Modal ...")
+    blob = design_lab.remote(json.dumps(data))
+    dest = Path(out) if out else src.parent / "render"
+    dest.mkdir(parents=True, exist_ok=True)
+    zipfile.ZipFile(io.BytesIO(blob)).extractall(dest)
+    audits = json.loads((dest / "audits.json").read_text(encoding="utf-8"))
+    bad = [a for a in audits if a.get("errors")]
+    warn = [a for a in audits if a.get("warnings") and not a.get("errors")]
+    print(f"done: {len(audits)} rendered, {len(bad)} with errors, {len(warn)} with warnings -> {dest}")
+    for a in bad[:40]:
+        print(f"  ERR #{a['index']} {a['label']}: {'; '.join(a['errors'])[:220]}")
+    for a in warn[:40]:
+        print(f"  WARN #{a['index']} {a['label']}: {'; '.join(a['warnings'])[:220]}")
+

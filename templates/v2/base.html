@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  Design engine v2 page. design/render.py fills in two placeholders:
+    __ENGINES__   <script> tags for only the engines this format needs
+                  (Mermaid alone is 5 MB; a hot take should not parse it)
+    __PAYLOAD__   the JSON slide: format, layout, look, accent, art, content
+  Everything else - fonts, styles, vendor engines - loads from this folder,
+  never from a CDN, so a scheduled post can never fail on a slow network.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="design.css">
+  __ENGINES__
+</head>
+<body>
+  <div class="canvas" id="canvas">
+    <div class="bg" id="bg"></div>
+    <div class="frame">
+      <header id="head"></header>
+      <main id="main"></main>
+      <footer id="foot"></footer>
+    </div>
+    <div class="fx" id="fx"></div>
+  </div>
+  <script>window.D = __PAYLOAD__;</script>
+  <script src="art.js"></script>
+  <script src="formats.js"></script>
+  <script src="runtime.js"></script>
+</body>
+</html>
