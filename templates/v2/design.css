@@ -391,6 +391,8 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .bento.stat-bento > .hero { grid-column: 1 / -1; justify-content: center; gap: 2cqmin; }
 .bento.stat-bento > .hero .ico { position: absolute; }
 .bento.stat-bento .mini .big { font-size: calc(9cqmin * var(--fit)); }
+/* a supporting figure sits with its label, not at the far end of the tile */
+.bento.stat-bento > .mini { justify-content: center; gap: 1.2cqmin; }
 .bento .big { font-family: var(--font-display); font-weight: 760; font-size: calc(13cqmin * var(--fit)); letter-spacing: -0.05em; line-height: 0.9; color: var(--card-fg); }
 .bento .ico { width: 6cqmin; height: 6cqmin; color: var(--acc); }
 .bento > .card > .ico { width: calc(11cqmin * var(--fit)); height: calc(11cqmin * var(--fit)); padding: calc(2.5cqmin * var(--fit));
@@ -508,7 +510,7 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
    placeQuadLabels() in runtime.js */
 .quad .pt { position: absolute; width: 0; height: 0; --dy: 0px; }
 .quad .pt i { position: absolute; left: 0; top: 0; width: 2.4cqmin; height: 2.4cqmin; border-radius: 50%; transform: translate(-50%, -50%); background: var(--fg-2); }
-.quad .pt .tx { position: absolute; white-space: nowrap; font-size: calc(3cqmin * var(--fit)); font-weight: 680; color: var(--fg);
+.quad .pt .tx { position: absolute; white-space: nowrap; font-size: calc(3cqmin * var(--fit) * var(--qfs, 1)); font-weight: 680; color: var(--fg);
   padding: 0.4cqmin 1.2cqmin; border-radius: 99cqmin; background: color-mix(in srgb, var(--bg) 86%, transparent);
   left: 1.6cqmin; top: 0; transform: translateY(calc(-50% + var(--dy))); }
 .quad .pt.r .tx { left: auto; right: 1.6cqmin; }
@@ -621,6 +623,9 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .app-screen .skel { width: 80%; display: grid; gap: 1.2cqmin; margin-top: 2cqmin; }
 .app-screen .skel i { height: 2cqmin; border-radius: 1cqmin; background: #E6ECF1; display: block; }
 .app-screen .skel i:nth-child(2) { width: 70%; } .app-screen .skel i:nth-child(3) { width: 85%; }
+/* On square and landscape canvases a 44-unit phone is taller than the room
+   the frame leaves; it sizes down with the canvas instead. */
+@container (min-aspect-ratio: 9 / 10) { .mock-phone { width: 30cqmin; border-radius: 4.4cqmin; padding: 1.2cqmin; } .mock-phone .scr { border-radius: 3.4cqmin; } }
 .mock-phone .notch { position: absolute; top: 2.6cqmin; left: 50%; transform: translateX(-50%); width: 13cqmin; height: 3.2cqmin; border-radius: 99cqmin; background: #0B0F16; z-index: 1; }
 
 /* cta + recap */

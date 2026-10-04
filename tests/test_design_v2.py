@@ -317,15 +317,54 @@ def test_phone_mockups_take_the_app_from_the_facts():
     assert app["name"] == "AI WhatsApp Automation" and app["initials"] == "AW" and app["tech"][0] == "Python"
 
 
-def test_a_known_number_cannot_carry_an_invented_claim(snapshot):
-    plan = _plan(("hook", "stat", "cta"))
-    figure = sorted(snapshot.known_numbers(), key=len)[0]       # a number the facts really contain
-    bad = {"value": figure, "label": "projects delivered this way", "source": "wizcodes.site"}
-    _, p = prompt.parse(_raw(plan, {1: bad}), plan, snapshot)
-    assert any("this way" in x for x in p)
-    ok = {"value": figure, "label": "projects delivered", "source": "wizcodes.site"}
-    _, p = prompt.parse(_raw(plan, {1: ok}), plan, snapshot)
+class _StatSnapshot:
+    projects: list = []
+    testimonials: list = []
+
+    def chartable_stats(self):
+        return [{"value": 26, "label": "projects delivered", "scope": "ours"},
+                {"value": 5, "label": "open-source tools published", "scope": "ours"}]
+
+    def known_numbers(self):
+        return set()
+
+
+def test_a_figure_of_ours_cannot_carry_an_invented_claim():
+    snap, plan = _StatSnapshot(), _plan(("hook", "stat", "recap", "cta"))
+    bad_label = {"value": "26", "label": "projects delivered with fixed-scope quotes", "source": "wizcodes.site"}
+    _, p = prompt.parse(_raw(plan, {1: bad_label}), plan, snap)
+    assert any("adds" in x and "fixed" in x for x in p), p
+    ok = {"value": "26", "label": "projects delivered", "source": "wizcodes.site"}
+    recap = dict(GOOD["recap"], note="26 projects delivered this way")
+    _, p = prompt.parse(_raw(plan, {1: ok, 2: recap}), plan, snap)
+    assert any(x.startswith("slide 3") and "this way" in x for x in p), p
     assert not [x for x in p if x.startswith("slide 2")]
+    # a different "5" is not our five open-source tools
+    hook = dict(GOOD["hook"], hook="5 questions every quote should answer")
+    _, p = prompt.parse(_raw(plan, {0: hook, 1: ok}), plan, snap)
+    assert not [x for x in p if x.startswith("slide 1")], p
+
+
+def test_captions_are_checked_for_figure_claims_too():
+    snap, plan = _StatSnapshot(), _plan(("hook", "cta"))
+    raw = json.loads(_raw(plan))
+    raw["caption"] = "26 projects delivered, all started with a free prototype."
+    _, p = prompt.parse(json.dumps(raw), plan, snap)
+    assert any(x.startswith("caption") for x in p), p
+
+
+def test_charts_plot_only_real_figures():
+    snap, plan = _StatSnapshot(), _plan(("hook", "chart", "cta"))
+    fake = dict(GOOD["chart"], series=[{"label": "Price only", "value": 1}, {"label": "Scope", "value": 4}])
+    _, p = prompt.parse(_raw(plan, {1: fake}), plan, snap)
+    assert any("does not contain" in x or "do not contain" in x for x in p), p
+    real = dict(GOOD["chart"], series=[{"label": "Projects", "value": 26}, {"label": "Tools", "value": 5}], highlight="Projects")
+    _, p = prompt.parse(_raw(plan, {1: real}), plan, snap)
+    assert not [x for x in p if x.startswith("slide 2")], p
+
+
+def test_a_bento_stat_needs_tiles():
+    assert any("BENTO" in x for x in validate("stat", {"value": "3", "label": "x", "source": "y"}, "bento"))
 
 
 def test_crowded_quadrant_points_are_rejected():
@@ -337,3 +376,14 @@ def test_crowded_quadrant_points_are_rejected():
 def test_donuts_are_never_picked_automatically():
     for p in _simulate("instagram", 8, days=40, has_stats=True, has_project=True):
         assert not any(s.format == "chart" and s.layout == "donut" for s in p.slides)
+
+
+def test_quadrant_positions_written_as_percent_are_rescaled():
+    plan = _plan(("hook", "quadrant", "cta"))
+    pts = [{"label": "Retainer agencies", "x": 15, "y": 85}, {"label": "WizCodes", "x": 90, "y": 25, "us": True}]
+    draft, p = prompt.parse(_raw(plan, {1: dict(GOOD["quadrant"], points=pts)}), plan)
+    got = draft["slides"][1]["content"]["points"]
+    assert got[0]["x"] == 0.15 and got[1]["y"] == 0.25
+    assert not [x for x in p if x.startswith("slide 2")], p
+    off_scale = [{"label": "A", "x": 1.5, "y": 0.2}, {"label": "B", "x": 0.1, "y": 0.9}]
+    assert any("0 to 1" in x for x in validate("quadrant", dict(GOOD["quadrant"], points=off_scale)))

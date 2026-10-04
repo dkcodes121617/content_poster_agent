@@ -112,7 +112,11 @@
     if ((D.look === 'sketch') && window.rough) sketch(art.seed || 7);
 
     // ── quadrant labels: placed on final sizes, before anything measures them
-    placeQuadLabels();
+    const quadFit = placeQuadLabels();
+    if (quadFit) {
+      verify.quad = quadFit;
+      if (quadFit.overlap) warnings.push('quadrant labels still touch at the smallest label size');
+    }
 
     // ── figure art: into the empty space the final layout left ────────────
     if (figureArt(art.kind) && art.kind !== 'none' && window.ART[art.kind] && !document.querySelector('[data-art-slot]')) {
@@ -130,7 +134,8 @@
   window.__ready = true;
 
   // ═══════════════════ engines ═══════════════════
-  async function renderChart(job, css, verify, errors) {
+  async function renderChart(jobIn, css, verify, errors) {
+    let job = jobIn;
     const slot = document.querySelector('[data-chart]');
     if (!window.vega || !window.vegaLite) throw new Error('vega not loaded');
     const series = (job.chart.series || []).map((s) => ({ label: String(s.label), value: Number(s.value) }));
@@ -150,6 +155,14 @@
     if (job.layout === 'donut') h = Math.min(h, Math.round(w * 0.95));
     const fg = css('--fg'), fg2 = css('--fg-2') || fg, muted = css('--muted'), acc = css('--acc'), soft = css('--line') || muted;
     const maxV = Math.max(...series.map((s) => s.value), 0) || 1;
+    // Column labels sit side by side under narrow columns; when the longest
+    // would not fit its column the chart is drawn as bars, which give every
+    // label the full width. ("Scope boundary" ran into "Exclusions".)
+    if (job.layout === 'column') {
+      const longest = Math.max(...series.map((s) => s.label.length));
+      if (longest * fs * 0.55 > (w / series.length) * 0.92) job = Object.assign({}, job, { layout: 'bar' });
+      if (job.layout === 'bar') h = Math.min(Math.max(240, Math.round(r.height)), Math.round(series.length * fs * 5.2));
+    }
     const font = getComputedStyle(canvas).fontFamily;
     const base = {
       $schema: 'https://vega.github.io/schema/vega-lite/v6.json', width: w, height: h, background: null, data: { values: series },
@@ -539,9 +552,21 @@
   // and keeps the first that stays inside the matrix and touches nothing
   // already placed: the axis captions, the zone names, the other labels. A
   // fixed rule (right half grows left) collided two labels on the same row.
+  // When labels still touch at full size (long labels in a monospace look),
+  // the label type steps down and the placement runs again.
   function placeQuadLabels() {
     const quad = document.querySelector('.quad');
-    if (!quad) return;
+    if (!quad) return null;
+    let overlap = 0;
+    for (const scale of [1, 0.9, 0.8, 0.72]) {
+      quad.style.setProperty('--qfs', scale);
+      overlap = placeOnce(quad);
+      if (overlap === 0) return { scale, overlap: 0 };
+    }
+    return { scale: 0.72, overlap: Math.round(overlap) };
+  }
+
+  function placeOnce(quad) {
     const qr = quad.getBoundingClientRect();
     const slack = Math.min(W, H) * 0.05;               // the quad's own top/bottom margin
     const range = document.createRange();
@@ -555,12 +580,15 @@
     const area = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
       Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
     const grow = (r, p) => ({ left: r.left - p, right: r.right + p, top: r.top - p, bottom: r.bottom + p });
+    let total = 0;
     const pts = [...quad.querySelectorAll('.pt')].sort((a, b) => Number(b.classList.contains('us')) - Number(a.classList.contains('us')));
     for (const pt of pts) {
       const tx = pt.querySelector('.tx');
       const obstacles = [...taken, ...[...dots].filter(([p]) => p !== pt).map(([, r]) => r)];
       const h = tx.getBoundingClientRect().height + 4;
-      const first = pt.classList.contains('r') ? 'r' : '';
+      // The side formats.js chose, remembered across re-runs of the placement.
+      if (pt.dataset.pref === undefined) pt.dataset.pref = pt.classList.contains('r') ? 'r' : '';
+      const first = pt.dataset.pref;
       const sides = [first, first ? '' : 'r'];
       // Beside the dot, then above or below it, then beside it nudged up or
       // down a line at a time: the first spot inside the matrix that touches
@@ -583,7 +611,9 @@
       if (best && best.cls) pt.classList.add(best.cls);
       pt.style.setProperty('--dy', `${best ? best.dy : 0}px`);
       taken.push(tx.getBoundingClientRect());
+      total += best ? best.overlap : 1;              // nowhere inside the matrix counts as touching
     }
+    return total;
   }
 
   // ═══════════════════ figure art in empty space ═══════════════════

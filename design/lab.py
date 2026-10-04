@@ -88,13 +88,14 @@ def round_hostile() -> list[tuple[str, dict]]:
 
 
 def round_canvas() -> list[tuple[str, dict]]:
-    picks = [("hook", "stack"), ("stat", "hero"), ("checklist", "list"), ("hot_take", "big"), ("quote", "classic"), ("chart", "bar")]
+    picks = [("hook", "stack"), ("stat", "hero"), ("checklist", "list"), ("hot_take", "big"), ("quote", "card"), ("chart", "bar"),
+             ("mockup", "phone"), ("flags", "columns"), ("decision_tree", "td"), ("cheat_sheet", "grid")]
     out, n = [], 0
     for canvas in ("square", "story", "landscape", "pin"):
         for fid, layout in picks:
             if canvas == "landscape" and not FORMATS[fid].landscape_ok:
                 continue
-            out.append(_payload(fid, layout, ("midnight", "paper", "glass", "ink")[n % 4], n, canvas=canvas))
+            out.append(_payload(fid, layout, ("midnight", "paper", "glass", "ink", "aurora", "grain", "noir", "swiss")[n % 8], n, canvas=canvas))
             n += 1
     return out
 

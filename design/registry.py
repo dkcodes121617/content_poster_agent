@@ -155,7 +155,8 @@ FORMATS: dict[str, Format] = {f.id: f for f in [
            {"eyebrow": EYEBROW, "title": T(56),
             "x": Obj({"low": T(16), "high": T(16)}), "y": Obj({"low": T(16), "high": T(16)}),
             "zones": Obj({"tl": T(18, required=False), "tr": T(18, required=False), "bl": T(18, required=False), "br": T(18, required=False)}, required=False),
-            "points": L(Obj({"label": T(20), "x": Field("num"), "y": Field("num"), "us": Field("bool", required=False)}), 2, 6),
+            "points": L(Obj({"label": T(20), "x": Field("num", note="0 (left) to 1 (right)"),
+                             "y": Field("num", note="0 (bottom) to 1 (top)"), "us": Field("bool", required=False)}), 2, 6),
             "win": E("tl", "tr", "bl", "br", required=False)},
            "positioning options on two axes", pillars=("teach", "pov")),
     Format("code", "Code card", "both", ("editor",),
@@ -287,6 +288,15 @@ def budget(n: int, canvas: str = "portrait") -> int:
     return int(n * BUDGET_SCALE.get(canvas, 1.0))
 
 
+def count_cap(n: int, lo: int = 0, canvas: str = "portrait") -> int:
+    """How many items a list may hold on this canvas. Six cheat-sheet cells in
+    three rows render at 0.64x on a square canvas - a fifth less height - so
+    long lists lose one or two items there, never going below their minimum."""
+    if BUDGET_SCALE.get(canvas, 1.0) >= 1.0 or n < 5:
+        return n
+    return max(lo, n - (2 if n >= 6 else 1))
+
+
 def validate(format_id: str, content: dict, layout: str = "", canvas: str = "portrait") -> list[str]:
     """Problems with a content spec, worded so they can be fed back to the writer.
 
@@ -315,6 +325,11 @@ def validate(format_id: str, content: dict, layout: str = "", canvas: str = "por
             problems.append(f"a code line is {wide} characters wide - max 46")
     if format_id == "quadrant":
         problems += _crowded_points(content.get("points"))
+        if any(isinstance(p, dict) and isinstance(p.get(k), (int, float)) and not 0 <= p[k] <= 1
+               for p in content.get("points") or [] for k in ("x", "y")):
+            problems.append("quadrant positions run from 0 to 1 (0.5 is the middle) - rescale x and y")
+    if format_id == "stat" and layout == "bento" and len(content.get("tiles") or []) < 2:
+        problems.append("this stat is a BENTO: add 2-3 'tiles' of supporting figures from the facts")
     if format_id == "vs":
         sides = [content.get("left") or {}, content.get("right") or {}]
         if layout == "table":
@@ -356,8 +371,9 @@ def _check(name: str, spec: Field, value, problems: list[str], canvas: str = "po
             return
         if len(value) < spec.min:
             problems.append(f"'{name}' has {len(value)} items - min {spec.min}")
-        if spec.max and len(value) > spec.max:
-            problems.append(f"'{name}' has {len(value)} items - max {spec.max}")
+        cap = count_cap(spec.max, spec.min, canvas) if spec.max else 0
+        if cap and len(value) > cap:
+            problems.append(f"'{name}' has {len(value)} items - max {cap}")
         for i, item in enumerate(value):
             if isinstance(spec.item, Field):
                 _check(f"{name}[{i}]", spec.item, item, problems, canvas)

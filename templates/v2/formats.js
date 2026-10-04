@@ -89,7 +89,7 @@
             `<div class="rv grad" data-fit="line">${plain(c.value)}</div></div>` +
             `<p class="stat-label" data-fit="block">${rich(c.label)}</p>${ctx}${src}</div>`;
         }
-        if (layout === 'bento') {
+        if (layout === 'bento' && arr(c.tiles).length >= 2) {
           const tiles = arr(c.tiles).slice(0, 3);
           const minis = tiles.map((t) => `<div class="card mini"><div class="big">${plain(t.value)}</div><div class="small">${plain(t.label)}</div></div>`).join('');
           const style = tiles.length ? `grid-template-columns:repeat(${tiles.length},minmax(0,1fr))` : 'grid-template-columns:1fr;grid-template-rows:1fr';
@@ -324,8 +324,13 @@
       build(c, x) {
         const X = c.x || {}, Y = c.y || {}, z = c.zones || {}, win = c.win || 'tr';
         const zone = (k) => `<div class="zone ${k}${win === k ? ' win' : ''}">${plain(z[k] || '')}</div>`;
+        // Positions run 0 to 1. A set written 0-100 is read as percent rather
+        // than clamped into one corner (the parser rescales too; this is the
+        // renderer refusing to stack every point in the same spot).
+        const big = Math.max(0, ...arr(c.points).map((p) => Math.max(Number(p.x) || 0, Number(p.y) || 0))) > 1 ? 100 : 1;
         const pts = arr(c.points).map((p) => {
-          const px = Math.max(4, Math.min(96, Number(p.x) * 100)), py = Math.max(4, Math.min(96, (1 - Number(p.y)) * 100));
+          const ux = Number(p.x) / big, uy = Number(p.y) / big;
+          const px = Math.max(4, Math.min(96, ux * 100)), py = Math.max(4, Math.min(96, (1 - uy) * 100));
           // The dot marks the data point exactly; its label runs right, or left
           // on the right-hand side, so a long label never leaves the frame.
           return `<div class="pt${p.us ? ' us' : ''}${px > 62 ? ' r' : ''}" style="left:${px}%;top:${py}%"><i></i><span class="tx">${plain(p.label)}</span></div>`;

@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import re
 
-from design.registry import FORMATS, Field, budget, validate
+from design.registry import FORMATS, Field, budget, count_cap, validate
 from design.select import DesignPlan
 from prompts.library import (
     DIVISION_OF_LABOUR,
@@ -146,7 +146,8 @@ def _field_line(name: str, f: Field, indent: str = "      ", canvas: str = "port
             out += _field_line(k, sub, indent + "    ", canvas)
         return out
     if f.kind == "list":
-        span = f"{f.min}-{f.max}" if f.min != f.max else f"exactly {f.min}"
+        hi = count_cap(f.max, f.min, canvas)
+        span = f"{f.min}-{hi}" if f.min != hi else f"exactly {f.min}"
         item = f.item
         sub_fields = item if isinstance(item, dict) else (item.fields if isinstance(item, Field) and item.kind == "obj" else None)
         if sub_fields:
@@ -276,13 +277,34 @@ replacements, in this shape:
 Leave out every slide that was not rejected."""
 
 
-def repair(user_prompt: str, draft: dict, problems: list[str]) -> str:
+# Rejections reworded as instructions. "Varies 17% around a 13-word average,
+# wanted 18%" is true and unusable: four repairs in a row returned the same
+# caption. "Is 79 characters - max 78" came back at 79. Say what to DO.
+_OVER = re.compile(r"'([^']+)' is (\d+) characters - max (\d+)")
+
+
+def _actionable(problem: str) -> str:
+    m = _OVER.search(problem)
+    if m:
+        return _OVER.sub(f"'{m.group(1)}' is {m.group(2)} characters - rewrite it shorter, in at most "
+                         f"{_shown(int(m.group(3)))} characters", problem)
+    if "sentence lengths are too uniform" in problem:
+        return ("caption: [voice] every sentence is about the same length, which reads as machine-written - rewrite "
+                "the caption with one sentence of three to five words and one of twenty words or more")
+    return problem
+
+
+def repair(user_prompt: str, draft: dict, problems: list[str], repeated: set[str] | None = None) -> str:
     compact = {"caption": draft.get("caption", ""), "hashtags": draft.get("hashtags", []),
                "slides": [{"index": i, "format": s["format"], "content": s["content"]}
                           for i, s in enumerate(draft.get("slides") or [], 1)]}
-    return user_prompt + "\n\n" + REPAIR_NOTE.format(
-        draft=json.dumps(compact, ensure_ascii=False),
-        problems="\n".join(f"- {p}" for p in problems[:16]))
+    lines = []
+    for p in problems[:16]:
+        note = _actionable(p)
+        if repeated and p in repeated:
+            note += " (flagged again after the last fix - write this part completely differently)"
+        lines.append(f"- {note}")
+    return user_prompt + "\n\n" + REPAIR_NOTE.format(draft=json.dumps(compact, ensure_ascii=False), problems="\n".join(lines))
 
 
 # ── parsing ──────────────────────────────────────────────────────────────────
@@ -362,6 +384,8 @@ def parse(raw, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[str]]
         _fix_icons(content)
         if want.format == "mockup":
             _fill_app(content, snapshot)
+        if want.format == "quadrant":
+            _unit_points(content)
         problems += [f"slide {i} ({want.format}): {p}" for p in validate(want.format, content, want.layout, plan.canvas)]
         for where, text in _texts(content):
             if (want.format, where.split("[")[0].split(".")[0]) in _VERBATIM:
@@ -376,8 +400,8 @@ def parse(raw, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[str]]
                 problems.append(f"slide {i} {where} marks more than one phrase - mark one")
         slides.append({"format": want.format, "layout": want.layout, "content": content})
 
-    problems += grounded(slides, snapshot)
     caption = str(data.get("caption") or "").strip()
+    problems += grounded(slides, snapshot, caption=caption, pillar=plan.pillar)
     if not caption:
         problems.append("caption: it is empty")
     hashtags = [str(h).strip().lstrip("#") for h in (data.get("hashtags") or []) if str(h).strip()]
@@ -396,6 +420,20 @@ def _words(text: str) -> set[str]:
     return {w for w in _WORD.findall(str(text).lower()) if w not in _STOP and len(w) > 2}
 
 
+def _unit_points(content: dict) -> None:
+    """Quadrant positions run 0 to 1, and writers often send 0-100 ("x": 90).
+    The renderer clamped those into the far corner: every point of three real
+    matrices landed in one spot with the labels stacked. A set written on a
+    0-100 scale is rescaled rather than rejected - the intent is unambiguous."""
+    pts = [p for p in content.get("points") or [] if isinstance(p, dict)]
+    nums = [p[k] for p in pts for k in ("x", "y") if isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool)]
+    if nums and 1 < max(nums) <= 100 and min(nums) >= 0:
+        for p in pts:
+            for k in ("x", "y"):
+                if isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool):
+                    p[k] = round(p[k] / 100, 3)
+
+
 def _fill_app(content: dict, snapshot) -> None:
     """A phone mockup shows the app's identity, and the facts already have
     it: name, category and stack come from the project, never from the
@@ -412,13 +450,61 @@ def _fill_app(content: dict, snapshot) -> None:
                       "tech": [str(t)[:14] for t in (project.tech or [])[:3]]}
 
 
-# A known figure with a claim bolted on: "26 projects delivered THIS WAY",
-# "ALL started with a prototype". The number is true; the qualifier is not in
-# the facts. Seen twice in real drafts despite the writing rule.
-_UNIVERSAL = re.compile(r"\b(this way|all|every|each|always|without exception)\b", re.I)
+# A figure from the facts with a claim bolted on: "26 projects delivered THIS
+# WAY", "26 projects delivered WITH FIXED-SCOPE QUOTES", "ALL started with a
+# prototype". The number is true; what it is said to count is invented. Real
+# drafts did this three times, in a stat, a label and a recap footnote, with
+# the writing rule in the prompt each time - so it is checked, everywhere.
+_QUALIFIER = re.compile(r"\b(this way|all of them|all|every|each|always|without exception|started with|began with|"
+                        r"with (?:a |an |our |the )?(?:free|working|fixed|prototype))", re.I)
+# Words a label may add to the facts' own wording without changing the claim.
+_LABEL_OK = {"wizcodes", "project", "projects", "delivered", "shipped", "built", "builds", "build", "live", "country",
+             "countries", "client", "clients", "customer", "customers", "open", "source", "tools", "tool", "published",
+             "endorsed", "endorsements", "publicly", "public", "work", "works", "apps", "products", "worldwide", "total",
+             "so", "far", "to", "date", "across", "over", "served", "reached", "testimonials", "reviews"}
 
 
-def grounded(slides: list[dict], snapshot) -> list[str]:
+def _stat_facts(snapshot) -> dict[str, str]:
+    """Our own figures and what each one counts: {"26": "projects delivered"}."""
+    try:
+        return {str(s["value"]): str(s.get("label") or "") for s in (snapshot.chartable_stats() or [])
+                if s.get("scope", "ours") == "ours"}
+    except Exception:
+        return {}
+
+
+def _num_key(v) -> str:
+    """26, 26.0 and "26" are the same figure; 10 must not become "1"."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    return str(int(f)) if f.is_integer() else str(f)
+
+
+def _stem(words: set[str]) -> set[str]:
+    return {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in words}
+
+
+def _figure_claims(where: str, text: str, facts: dict[str, str]) -> list[str]:
+    """A figure of ours followed, within a few words, by a qualifier - but only
+    when those words are about what the figure counts: "5 questions every
+    quote should answer" is not our 5 open-source tools."""
+    out = []
+    for m in re.finditer(r"(?<![\d.,])(\d+)(?![\d.,%])", text):
+        if m.group(1) not in facts:
+            continue
+        after = " ".join(text[m.end():].split()[:9])
+        if not _stem(_words(" ".join(after.split()[:4]))) & _stem(_words(facts[m.group(1)])):
+            continue
+        q = _QUALIFIER.search(after)
+        if q:
+            out.append(f"{where}: '{m.group(1)} ... {q.group(0)}' claims more than the facts - they say {m.group(1)} "
+                       f"counts '{facts[m.group(1)]}', and nothing about how or with what")
+    return out
+
+
+def grounded(slides: list[dict], snapshot, caption: str = "", pillar: str = "") -> list[str]:
     """Claims the slides make by STRUCTURE, which the prose gate cannot see:
     a mockup naming a project, a quote naming a person, a role, their words."""
     if snapshot is None:
@@ -426,15 +512,28 @@ def grounded(slides: list[dict], snapshot) -> list[str]:
     problems: list[str] = []
     slugs = {p.slug for p in getattr(snapshot, "projects", []) if p.slug}
     testimonials = list(getattr(snapshot, "testimonials", []))
-    known = {str(n) for n in (snapshot.known_numbers() if hasattr(snapshot, "known_numbers") else set())}
+    facts = _stat_facts(snapshot)
+    known = set(facts) | {str(n) for n in (snapshot.known_numbers() if hasattr(snapshot, "known_numbers") else set())}
+    if caption:
+        problems += _figure_claims("caption", caption, facts)
     for i, s in enumerate(slides, 1):
         c = s.get("content") or {}
-        if s["format"] == "stat" and str(c.get("value", "")).strip() in known:
-            said = f"{c.get('label', '')} {c.get('context', '')}"
-            m = _UNIVERSAL.search(said)
-            if m:
-                problems.append(f"slide {i}: '{m.group(0)}' attaches a claim to {c.get('value')} that the facts do not make - "
-                                "label the number with what the facts say it counts, nothing more")
+        for where, text in _texts(c):
+            problems += _figure_claims(f"slide {i} {where}", text, facts)
+        value = str(c.get("value", "")).strip()
+        if s["format"] == "stat" and value in facts:
+            extra = _words(c.get("label", "")) - _words(facts[value]) - _LABEL_OK
+            if extra:
+                problems.append(f"slide {i}: the label adds '{' '.join(sorted(extra))}' to {value} - the facts count "
+                                f"'{facts[value]}'; say that, in those words or fewer")
+        if s["format"] == "chart" and pillar != "timely":
+            # Only the curated figures: "1, 2, 3" also occur somewhere in the
+            # facts, and a chart of 1-2-3-4 "scores" is a chart of nothing.
+            fake = [_num_key(it.get("value")) for it in (c.get("series") or []) if isinstance(it, dict)
+                    and _num_key(it.get("value")) not in facts]
+            if fake:
+                problems.append(f"slide {i}: the chart plots {', '.join(fake[:3])}, which the facts do not contain - "
+                                f"chart only real figures ({', '.join(f'{v} {lbl}' for v, lbl in facts.items())})")
         if s["format"] == "mockup" and c.get("project") and c["project"] not in slugs:
             problems.append(f"slide {i}: project '{c['project']}' is not a WizCodes project slug - use one from the facts")
         if s["format"] != "quote":
@@ -499,7 +598,8 @@ def write(client, *, system: str, user: str, plan: DesignPlan, snapshot=None, ga
             break
         targeted = draft is not None and all(_SLIDE.match(p) or p.startswith("caption") for p in problems)
         if targeted:
-            prompt_text, mode = repair(user, draft, problems), "repair"
+            seen = {p for a in attempts[:-1] for p in a["problems"]}
+            prompt_text, mode = repair(user, draft, problems, repeated=seen & set(problems)), "repair"
         else:
             draft, mode = None, "draft"
             prompt_text = user + "\n\n" + REGENERATE_NOTE.format(reasons="\n".join(f"- {p}" for p in problems[:12]))
