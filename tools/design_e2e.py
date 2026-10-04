@@ -20,7 +20,6 @@ import argparse
 import dataclasses
 import json
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -48,18 +47,14 @@ CASES: list[tuple[str, str, int]] = [
 ]
 
 
-def generate(config, cases, out_dir: Path) -> tuple[list[dict], list]:
-    from wizcore.facts import grounding
+def generate(config, cases, out_dir: Path, salt: str = "") -> tuple[list[dict], list]:
     from wizcore.facts.site import SiteReader
     from wizcore.facts.snapshot import build_snapshot
     from wizcore.llm.client import LLMClient
 
     from campaign.calendar import today_ist
-    from design import prompt, select
+    from design import gates, prompt, select
     from design.render import build_payload
-    from prompts.library import REGENERATE_NOTE
-    from validators import claims, voice
-    from validators import platform as platform_gate
 
     reader = SiteReader(repo=config.site_repo, token=config.site_read_token,
                         ref=config.site_branch, local_dir=config.site_local_dir or None)
@@ -75,37 +70,23 @@ def generate(config, cases, out_dir: Path) -> tuple[list[dict], list]:
     items: list = []
     for n, (platform, pillar, slides) in enumerate(cases, 1):
         plan = select.plan(platform=platform, pillar=pillar, slides=slides, history=ledger.get(platform, []),
-                           today=today, slot_key=f"e2e-{n}", has_stats=has_stats, has_project=bool(snapshot.projects))
+                           today=today, slot_key=f"e2e{salt}-{n}", has_stats=has_stats, has_project=bool(snapshot.projects))
         print(f"[{n}/{len(cases)}] {platform}/{pillar}: {plan.brief()}", flush=True)
         user = prompt.user(plan, platform=platform, pillar=pillar)
-        note, attempts, draft, problems = "", [], None, ["not attempted"]
-        for attempt in range(1, config.max_regenerations + 2):
-            t0 = time.time()
-            try:
-                raw = client.complete(system=system, user=user + note, max_tokens=5000, temperature=0.75)
-            except Exception as e:  # recorded, not raised: one failure must not end the run
-                problems = [f"generation failed: {e}"]
-                attempts.append({"attempt": attempt, "seconds": round(time.time() - t0, 1), "problems": problems})
-                break
-            draft, problems = prompt.parse(raw, plan, snapshot)
-            if draft is not None and not problems:
-                text = prompt.visible_text(draft["slides"])
-                full = f"{draft['caption']} {text}"
-                problems = [f"[grounding] {r}" for r in grounding.check(full, snapshot, [])]
-                problems += [f"[claims] {r}" for r in claims.check(full)]
-                problems += [f"[voice] {r}" for r in voice.check(draft["caption"])]
-                problems += [f"[platform] {r}" for r in platform_gate.check(
-                    platform, draft["caption"], draft["hashtags"], len(plan.slides))]
-            attempts.append({"attempt": attempt, "seconds": round(time.time() - t0, 1), "problems": problems})
-            print(f"    attempt {attempt}: {len(problems)} problem(s) in {attempts[-1]['seconds']}s"
-                  + (f" - {problems[0][:140]}" if problems else ""), flush=True)
-            if draft is not None and not problems:
-                break
-            note = "\n\n" + REGENERATE_NOTE.format(reasons="\n".join(f"- {p}" for p in problems[:12]))
 
+        def check(draft, _platform=platform, _pillar=pillar, _count=len(plan.slides)):
+            return gates.check(draft, platform_name=_platform, snapshot=snapshot, sources=[], pillar=_pillar,
+                               image_count=_count, repetition_threshold=config.repetition_threshold)
+
+        def show(a):
+            first = f" - {a['problems'][0][:150]}" if a["problems"] else ""
+            print(f"    call {a['call']} ({a['mode']}): {len(a['problems'])} problem(s) in {a['seconds']}s{first}", flush=True)
+
+        draft, problems, attempts = prompt.write(client, system=system, user=user, plan=plan, snapshot=snapshot,
+                                                 gates=check, on_attempt=show)
         ok = draft is not None and not problems
         report.append({"case": n, "platform": platform, "pillar": pillar, "plan": plan.to_record(),
-                       "ok": ok, "attempts": attempts, "draft": draft})
+                       "ok": ok, "attempts": attempts, "problems": problems, "draft": draft})
         if not ok or draft is None:
             continue
         ledger.setdefault(platform, []).insert(0, {"recipe": plan.recipe, "design": plan.to_record()})
@@ -134,6 +115,7 @@ def _mockup_svg(slide: dict, snapshot) -> str | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Real decks through the v2 design engine")
     ap.add_argument("--cases", type=int, default=len(CASES))
+    ap.add_argument("--salt", default="", help="varies the seeded designs between review runs")
     args = ap.parse_args()
 
     from wizcore.obs.log import setup_logging
@@ -147,7 +129,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"-> {out_dir}  model {config.voice_model}\n", flush=True)
 
-    report, items = generate(config, CASES[: args.cases], out_dir)
+    report, items = generate(config, CASES[: args.cases], out_dir, args.salt)
     (out_dir / "report.json").write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
     (out_dir / "items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
     ok = sum(1 for r in report if r["ok"])

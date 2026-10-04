@@ -471,6 +471,14 @@ def _pick_art(look_id: str, designs: list[dict], rng) -> str:
     return rng.choice(pool)
 
 
+# Layouts that are never chosen automatically. A donut says "parts of one
+# whole", and the facts' figures are different kinds of count (projects,
+# countries, testimonials): the first real donut sliced them into a pie. A
+# ring needs a percentage, and the facts have none - choosing it asks the
+# writer to find one, which is how numbers get invented.
+NOT_AUTOMATIC = frozenset({("chart", "donut"), ("stat", "ring")})
+
+
 def _layouts_and_places(formats, look, art, designs, rng, recipe) -> list[SlidePlan]:
     # The layout each format used most recently on this platform, to rotate off.
     last_layout: dict[str, str] = {}
@@ -481,7 +489,7 @@ def _layouts_and_places(formats, look, art, designs, rng, recipe) -> list[SlideP
     in_deck: dict[str, list[str]] = {}
     for i, fid in enumerate(formats):
         fmt = FORMATS[fid]
-        layouts = list(fmt.layouts)
+        layouts = [lay for lay in fmt.layouts if (fid, lay) not in NOT_AUTOMATIC] or list(fmt.layouts)
         if fid == "cta" and recipe is not None and recipe.cta in layouts:
             layout = recipe.cta
         else:

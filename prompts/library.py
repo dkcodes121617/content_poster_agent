@@ -103,8 +103,12 @@ PILLAR_BRIEFS = {
              "bad one. Useful enough to save.",
     "pov": "State a defensible opinion a buyer could argue with. It should cost "
            "something to say - an opinion nobody could disagree with is filler.",
-    "process": "Show how the free prototype actually runs, week by week. Process, "
-               "not an advert for the process.",
+    # Step by step, never week by week: a week number is a delivery schedule,
+    # and the claims gate rejects every one of them - the brief and the gate
+    # used to contradict each other, and every process draft paid for it.
+    "process": "Show how the free prototype actually runs, step by step and in "
+               "order - never with week numbers or durations. Process, not an "
+               "advert for the process.",
     "client_voice": "Retell a real client's experience as a story in your own "
                     "words, using only testimonials provided. Never present a "
                     "quote you were not given.",

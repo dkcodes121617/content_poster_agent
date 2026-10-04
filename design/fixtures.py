@@ -122,7 +122,12 @@ def hostile(format_id: str) -> dict:
             words = ("Wide words test the layout like real copy does under pressure " * 20)
             return (seed_text + " " + words)[: spec.max].rstrip() if spec.max else seed_text
         if spec.kind == "num":
-            return [0.2, 0.7, 0.4, 0.85, 0.3, 0.6][i % 6] if seed_text.lower() in ("x", "y") else (i + 1) * 7
+            # quadrant points on a 3x2 grid: as far apart as the crowding rule asks
+            if seed_text.lower() == "x":
+                return [0.15, 0.5, 0.85][i % 3]
+            if seed_text.lower() == "y":
+                return [0.25, 0.78][(i // 3) % 2]
+            return (i + 1) * 7
         if spec.kind == "enum":
             return spec.choices[i % len(spec.choices)]
         if spec.kind == "bool":

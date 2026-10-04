@@ -15,8 +15,11 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   const has = (v) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length);
   // "Off-the-shelf" broke after its first hyphen in a column heading; a
-  // compound is one word to a reader, so it wraps as one.
-  const nw = (h) => h.replace(/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/g, '<span class="nw">$&</span>');
+  // compound is one word to a reader, so it wraps as one. A WORD JOINER after
+  // each hyphen forbids the break without adding an element: a <span> inside
+  // a flex row becomes its own flex item, which split "One-command deploy
+  // from the repo" into two side-by-side columns of text.
+  const nw = (h) => h.replace(/([A-Za-z0-9])-(?=[A-Za-z0-9])/g, '$1-\u2060');
   const rich = (s) => nw(esc(s))
     .replace(/==(.+?)==/g, '<span class="mark">$1</span>')
     .replace(/\*(.+?)\*/g, '<span class="grad">$1</span>')
@@ -213,7 +216,7 @@
     flags: {
       layouts: ['columns'],
       build(c, x) {
-        const col = (cls, label, items, ic) => `<div class="flag-col ${cls}"><p class="h3">${x.icon(ic)} ${plain(label)}</p>` +
+        const col = (cls, label, items, ic) => `<div class="flag-col ${cls}"><p class="h3" data-fit="line" data-fit-min="0.78">${x.icon(ic)} ${plain(label)}</p>` +
           arr(items).map((t) => `<p class="small">${plain(txt(t))}</p>`).join('') + '</div>';
         return `${title(c.title, 'h2')}<div class="flags">${col('red', c.red_label || 'Red flags', c.red, 'flag')}${col('green', c.green_label || 'Green flags', c.green, 'circle-check')}</div>`;
       },
@@ -308,7 +311,7 @@
         const wide = x.D.canvas && x.D.canvas.w > x.D.canvas.h;
         if (layout === 'horizontal' && (wide ? ev.length <= 5 : ev.length <= 3)) {
           return `${title(c.title)}<div class="grow center"><div class="tl-h">` + ev.map((e) =>
-            `<div><div class="when mono" style="font-size:calc(2.5cqmin*var(--fit));color:var(--acc);letter-spacing:.08em;text-transform:uppercase">${plain(e.when)}</div>` +
+            `<div><div class="when mono" style="font-size:calc(2.5cqmin*var(--fit));color:var(--acc-text);letter-spacing:.08em;text-transform:uppercase">${plain(e.when)}</div>` +
             `<div class="h3" style="margin-top:1cqmin;font-size:calc(3.8cqmin*var(--fit))">${plain(e.what)}</div></div>`).join('') + '</div></div>';
         }
         return `${title(c.title)}<div class="grow center"><ul class="tl">` + ev.map((e) =>
@@ -371,7 +374,7 @@
             `<div class="tech">${arr(app.tech).slice(0, 3).map((t) => `<span>${plain(t)}</span>`).join('')}</div>` +
             `<div class="skel"><i></i><i></i><i></i></div></div>`;
           return `<div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:4cqmin;align-items:center;flex:1;min-height:0">` +
-            `<div class="grow center gap-m">${title(c.title, 'h1')}${cap}</div><div class="mock-phone"><div class="notch"></div><div class="scr">${screen}</div></div></div>`;
+            `<div class="grow center gap-m">${title(c.title, 'h2')}${cap}</div><div class="mock-phone"><div class="notch"></div><div class="scr">${screen}</div></div></div>`;
         }
         return `${title(c.title, 'h2')}<div class="mock-browser"><div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i>` +
           `<span class="url">${plain(c.url || 'wizcodes.site/work')}</span></div><div class="shot">${art}</div></div>${cap}`;

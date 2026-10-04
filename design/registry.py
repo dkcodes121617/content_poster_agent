@@ -80,16 +80,18 @@ FORMATS: dict[str, Format] = {f.id: f for f in [
            "a sharp opinion people will agree or argue with", pillars=("pov", "timely")),
     Format("stat", "Big number", "both", ("hero", "ring", "bento"),
            {"eyebrow": EYEBROW, "value": T(8, note="the number exactly as shown, e.g. '<200ms', '11', '73%'"),
-            "label": T(70), "context": T(130, required=False), "source": T(60, required=False, note="REQUIRED for any number about the world"),
+            "label": T(70), "context": T(130, required=False), "source": T(60, note="always: the project for our own figures, e.g. 'CuePilot, a WizCodes build'; the publisher for an external one"),
             "tiles": L(Obj({"value": T(8), "label": T(36)}), 0, 3, required=False), "icon": T(24, required=False)},
            "one number that makes the point; ring layout only for a percentage", pillars=("proof", "timely", "teach")),
     Format("chart", "Chart", "both", ("bar", "column", "donut"),
            {"eyebrow": EYEBROW, "title": T(70), "series": L(Obj({"label": T(22), "value": Field("num")}), 2, 6),
             "unit": T(10, required=False), "highlight": T(22, required=False, note="label of the bar to emphasise"),
-            "source": T(60, required=False, note="REQUIRED for any data about the world")},
+            "source": T(60, note="always: 'wizcodes.site' for our own figures; the publisher for an external one")},
            "a comparison of 2-6 real numbers", engines=("vega",), pillars=("proof", "timely", "teach")),
     Format("quote", "Quote", "both", ("classic", "card"),
-           {"eyebrow": EYEBROW, "quote": T(170), "name": T(40), "role": T(50, required=False)},
+           {"eyebrow": EYEBROW, "quote": T(170, note="a real testimonial's own words, trimmed - or a WizCodes principle"),
+            "name": T(40, note="the person exactly as named in the testimonials, or 'WizCodes'"),
+            "role": T(50, required=False, note="their company or role, from the facts")},
            "a real client testimonial or the studio's own principle", pillars=("proof", "pov")),
     Format("myth_fact", "Myth vs reality", "both", ("stacked", "split"),
            {"eyebrow": EYEBROW, "title": T(50, required=False), "myth": T(100), "fact": T(130, note="mark ONE phrase *like this*")},
@@ -111,7 +113,7 @@ FORMATS: dict[str, Format] = {f.id: f for f in [
             "kind": E("do", "dont", required=False), "note": T(90, required=False)},
            "a save-worthy list the reader can act on", pillars=("teach", "process")),
     Format("cheat_sheet", "Cheat sheet", "both", ("grid", "bento", "numbered"),
-           {"eyebrow": EYEBROW, "title": T(54), "cells": L(Obj({"head": T(20), "body": T(58), "icon": T(24, required=False)}), 4, 6)},
+           {"eyebrow": EYEBROW, "title": T(54), "cells": L(Obj({"head": T(18), "body": T(54), "icon": T(24, required=False)}), 4, 6)},
            "a dense reference people save and share", pillars=("teach",), landscape_ok=False),
     Format("flags", "Red / green flags", "both", ("columns",),
            {"eyebrow": EYEBROW, "title": T(54, required=False), "red": L(T(44), 2, 4), "green": L(T(44), 2, 4),
@@ -119,7 +121,8 @@ FORMATS: dict[str, Format] = {f.id: f for f in [
            "signs of a good or bad partner/process", pillars=("teach", "pov")),
     Format("vs", "This vs that", "both", ("columns", "table"),
            {"eyebrow": EYEBROW, "title": T(56, required=False),
-            "left": Obj({"label": T(22), "points": L(T(52), 2, 4)}), "right": Obj({"label": T(22), "points": L(T(52), 2, 4)}),
+            "left": Obj({"label": T(22), "points": L(T(52), 2, 4, required=False, note="columns layout")}),
+            "right": Obj({"label": T(22), "points": L(T(52), 2, 4, required=False, note="columns layout")}),
             "rows": L(Obj({"aspect": T(22), "left": T(40), "right": T(40)}), 3, 5, required=False, note="table layout only"),
             "winner": E("left", "right", required=False), "verdict": T(110, required=False)},
            "an honest comparison of two options", pillars=("teach", "pov")),
@@ -145,7 +148,8 @@ FORMATS: dict[str, Format] = {f.id: f for f in [
             "tree": Field("tree", note="{q, yes, no} where yes/no is another node or a short leaf string; max depth 3, max 9 boxes")},
            "a yes/no decision a buyer faces", engines=("mermaid",), pillars=("teach",)),
     Format("timeline", "Timeline", "both", ("vertical", "horizontal"),
-           {"eyebrow": EYEBROW, "title": T(58), "events": L(Obj({"when": T(16), "what": T(64)}), 3, 5)},
+           {"eyebrow": EYEBROW, "title": T(58), "events": L(Obj({"when": T(16, note="a stage ('The problem', 'Prototype', 'Today') or a real date from the facts - never a week number or a duration"),
+                              "what": T(64)}), 3, 5)},
            "how something evolved (milestones, history) - never a delivery schedule", pillars=("process", "timely", "proof")),
     Format("quadrant", "2x2 matrix", "both", ("matrix",),
            {"eyebrow": EYEBROW, "title": T(56),
@@ -191,18 +195,22 @@ class Look:
 
 
 LOOKS: dict[str, Look] = {k.id: k for k in [
-    Look("midnight", "dark", ("premium", "calm", "technical"), ("orbits", "network", "waves", "topo", "pixels")),
-    Look("paper", "light", ("calm", "clear"), ("blobs", "iso", "bauhaus", "cards", "waves")),
+    Look("midnight", "dark", ("premium", "calm", "technical"), ("orbits", "network", "waves", "topo", "pixels", "flow")),
+    Look("paper", "light", ("calm", "clear"), ("blobs", "iso", "bauhaus", "cards", "waves", "halftone")),
     Look("aqua", "light", ("friendly", "bright"), ("blobs", "waves", "cards", "orbits")),
-    Look("blueprint", "dark", ("technical", "precise"), ("iso", "topo", "network", "waves")),
-    Look("ink", "light", ("bold", "loud"), ("bauhaus", "chevrons", "pixels"), places=("corner", "band")),
+    Look("blueprint", "dark", ("technical", "precise"), ("iso", "topo", "network", "waves", "grid")),
+    Look("ink", "light", ("bold", "loud"), ("bauhaus", "chevrons", "pixels", "halftone"), places=("corner", "band")),
     Look("sketch", "light", ("playful", "human"), (), places=()),
     Look("editorial", "light", ("premium", "editorial"), ("topo", "waves"), places=("band", "corner")),
-    Look("terminal", "dark", ("technical", "hacker"), ("pixels", "network", "chevrons")),
-    Look("glass", "dark", ("premium", "modern"), ("blobs", "orbits", "rays")),
-    Look("bold", "dark", ("bold", "energetic"), ("bauhaus", "rays", "chevrons", "waves")),
-    Look("duotone", "dark", ("bold", "modern"), ("orbits", "topo", "streaks")),
-    Look("neon", "dark", ("energetic", "kinetic"), ("streaks", "rays", "network"), places=("bg", "band")),
+    Look("terminal", "dark", ("technical", "hacker"), ("pixels", "network", "chevrons", "grid")),
+    Look("glass", "dark", ("premium", "modern"), ("blobs", "orbits", "rays", "flow")),
+    Look("bold", "dark", ("bold", "energetic"), ("bauhaus", "rays", "chevrons", "waves", "arcs")),
+    Look("duotone", "dark", ("bold", "modern"), ("orbits", "topo", "streaks", "arcs")),
+    Look("neon", "dark", ("energetic", "kinetic"), ("streaks", "rays", "network", "grid"), places=("bg", "band")),
+    Look("aurora", "light", ("calm", "premium", "friendly", "modern"), ("flow", "blobs", "orbits")),
+    Look("swiss", "light", ("precise", "clear", "bold"), ("arcs", "halftone", "grid"), places=("corner", "band")),
+    Look("grain", "dark", ("modern", "energetic", "kinetic"), ("flow", "halftone", "streaks")),
+    Look("noir", "dark", ("premium", "editorial", "calm"), ("topo", "flow", "arcs"), places=("band", "corner")),
 ]}
 
 ACCENTS = ("blue", "teal", "purple", "green", "amber")
@@ -210,7 +218,8 @@ ACCENTS = ("blue", "teal", "purple", "green", "amber")
 # colours — and rotates where there is not.
 SERVICE_ACCENT = {"Web Development": "blue", "Mobile Apps": "teal", "AI Automation": "purple"}
 
-ART_KINDS = ("orbits", "blobs", "iso", "waves", "topo", "bauhaus", "network", "cards", "chevrons", "streaks", "pixels", "rays")
+ART_KINDS = ("orbits", "blobs", "iso", "waves", "topo", "bauhaus", "network", "cards", "chevrons", "streaks", "pixels", "rays",
+             "flow", "halftone", "grid", "arcs")
 
 # ── canvases & engines ────────────────────────────────────────────────────────
 
@@ -240,7 +249,7 @@ BASE_ICONS = ("check", "x", "arrow-right", "bookmark", "send", "user-plus", "mes
 # Art that is solid shapes rather than hairlines. Behind dense text on a light
 # ground it costs contrast (the first lab round measured 1.7:1 on a points list
 # over Bauhaus tiles), so there it only sits in a corner or along a band.
-SOLID_ART = frozenset({"bauhaus", "iso", "cards", "pixels", "blobs", "rays"})
+SOLID_ART = frozenset({"bauhaus", "iso", "cards", "pixels", "blobs", "rays", "halftone"})
 DENSE_FORMATS = frozenset({"checklist", "cheat_sheet", "flags", "vs", "steps", "framework", "tier_list", "timeline",
                            "quadrant", "code", "terminal", "chat", "recap", "notes", "iceberg", "decision_tree", "chart"})
 
@@ -263,8 +272,27 @@ def engines_for(format_id: str, look: str) -> tuple:
 # ── validation ────────────────────────────────────────────────────────────────
 
 
-def validate(format_id: str, content: dict) -> list[str]:
-    """Problems with a content spec, worded so they can be fed back to the writer."""
+# Budgets are measured on the 4:5 portrait canvas. A canvas with less height
+# holds less copy at the same type size - the first real square quote rendered
+# at 0.61x - so text budgets shrink with it.
+BUDGET_SCALE = {"portrait": 1.0, "pin": 1.0, "story": 1.0, "square": 0.82, "landscape": 0.8}
+
+
+def budget(n: int, canvas: str = "portrait") -> int:
+    """A text budget on this canvas. Only wrapping copy scales: a label of 48
+    characters or fewer is one line, and every canvas is as wide as portrait
+    or wider - it is height that a square canvas lacks."""
+    if n <= 48:
+        return n
+    return int(n * BUDGET_SCALE.get(canvas, 1.0))
+
+
+def validate(format_id: str, content: dict, layout: str = "", canvas: str = "portrait") -> list[str]:
+    """Problems with a content spec, worded so they can be fed back to the writer.
+
+    `layout` matters for the formats whose layouts read different fields:
+    a vs table is built from rows, vs columns from each side's points.
+    """
     fmt = FORMATS.get(format_id)
     if fmt is None:
         return [f"unknown format {format_id!r}"]
@@ -272,12 +300,10 @@ def validate(format_id: str, content: dict) -> list[str]:
         return ["content must be an object"]
     problems: list[str] = []
     for name, spec in fmt.fields.items():
-        _check(name, spec, content.get(name), problems)
+        _check(name, spec, content.get(name), problems, canvas)
     unknown = sorted(set(content) - set(fmt.fields))
     if unknown:
         problems.append(f"unknown field(s) {', '.join(unknown)} - remove them")
-    if format_id == "stat" and content.get("value") and not content.get("source") and _looks_external(content):
-        problems.append("a number about the world needs a 'source'")
     if format_id == "decision_tree":
         problems += _check_tree(content.get("tree"))
     if format_id == "code" and isinstance(content.get("code"), str):
@@ -287,12 +313,19 @@ def validate(format_id: str, content: dict) -> list[str]:
         wide = max((len(ln) for ln in lines), default=0)
         if wide > 46:
             problems.append(f"a code line is {wide} characters wide - max 46")
-    if format_id == "vs" and content.get("rows") is None and not (content.get("left") and content.get("right")):
-        problems.append("vs needs left and right")
+    if format_id == "quadrant":
+        problems += _crowded_points(content.get("points"))
+    if format_id == "vs":
+        sides = [content.get("left") or {}, content.get("right") or {}]
+        if layout == "table":
+            if not isinstance(content.get("rows"), list) or len(content.get("rows") or []) < 3:
+                problems.append("this vs slide is a TABLE: write 3-5 'rows' (aspect, left, right), plus left.label and right.label")
+        elif any(not isinstance(sd, dict) or len(sd.get("points") or []) < 2 for sd in sides):
+            problems.append("this vs slide is COLUMNS: write 2-4 'points' for both left and right")
     return problems
 
 
-def _check(name: str, spec: Field, value, problems: list[str]) -> None:
+def _check(name: str, spec: Field, value, problems: list[str], canvas: str = "portrait") -> None:
     if value is None or value == "" or value == []:
         if spec.required:
             problems.append(f"'{name}' is required")
@@ -300,8 +333,8 @@ def _check(name: str, spec: Field, value, problems: list[str]) -> None:
     if spec.kind == "text":
         if not isinstance(value, str):
             problems.append(f"'{name}' must be text")
-        elif spec.max and len(_visible(value)) > spec.max:
-            problems.append(f"'{name}' is {len(_visible(value))} characters - max {spec.max}")
+        elif spec.max and len(_visible(value)) > budget(spec.max, canvas):
+            problems.append(f"'{name}' is {len(_visible(value))} characters - max {budget(spec.max, canvas)}")
     elif spec.kind == "num":
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             problems.append(f"'{name}' must be a number")
@@ -316,7 +349,7 @@ def _check(name: str, spec: Field, value, problems: list[str]) -> None:
             problems.append(f"'{name}' must be an object")
             return
         for k, sub in (spec.fields or {}).items():
-            _check(f"{name}.{k}", sub, value.get(k), problems)
+            _check(f"{name}.{k}", sub, value.get(k), problems, canvas)
     elif spec.kind == "list":
         if not isinstance(value, list):
             problems.append(f"'{name}' must be a list")
@@ -327,15 +360,13 @@ def _check(name: str, spec: Field, value, problems: list[str]) -> None:
             problems.append(f"'{name}' has {len(value)} items - max {spec.max}")
         for i, item in enumerate(value):
             if isinstance(spec.item, Field):
-                _check(f"{name}[{i}]", spec.item, item, problems)
+                _check(f"{name}[{i}]", spec.item, item, problems, canvas)
             elif isinstance(spec.item, dict):
                 if not isinstance(item, dict):
                     problems.append(f"'{name}[{i}]' must be an object")
                     continue
                 for k, sub in spec.item.items():
-                    _check(f"{name}[{i}].{k}", sub, item.get(k), problems)
-            elif isinstance(spec.item, Field) is False and hasattr(spec.item, "kind"):
-                _check(f"{name}[{i}]", spec.item, item, problems)
+                    _check(f"{name}[{i}].{k}", sub, item.get(k), problems, canvas)
 
 
 def _visible(s: str) -> str:
@@ -343,9 +374,20 @@ def _visible(s: str) -> str:
     return s.replace("==", "").replace("*", "")
 
 
-def _looks_external(content: dict) -> bool:
-    text = f"{content.get('label', '')} {content.get('context', '')}".lower()
-    return not any(w in text for w in ("we ", "our ", "wizcodes", "projects", "clients", "countries"))
+def _crowded_points(points) -> list[str]:
+    """Points whose labels would sit on top of each other. A label is far
+    wider than it is tall, so points need more room side by side than above
+    and below each other - the first real matrices put four labels in one
+    corner and no placement could separate them."""
+    pts = [p for p in (points or []) if isinstance(p, dict) and isinstance(p.get("x"), (int, float))
+           and isinstance(p.get("y"), (int, float))]
+    out: list[str] = []
+    for i, a in enumerate(pts):
+        for b in pts[i + 1:]:
+            if abs(a["x"] - b["x"]) < 0.3 and abs(a["y"] - b["y"]) < 0.14:
+                out.append(f"points '{a.get('label', '')}' and '{b.get('label', '')}' sit on top of each other - "
+                           "spread them out (x 0.3 apart, or y 0.14 apart; positions run 0 to 1)")
+    return out[:3]
 
 
 def _check_tree(tree, depth: int = 0, counter: list | None = None) -> list[str]:

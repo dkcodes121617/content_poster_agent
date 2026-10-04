@@ -299,6 +299,54 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 [data-look="neon"] .bg { background: radial-gradient(70cqmax 50cqmax at 50% 120%, color-mix(in srgb, var(--a-glow) 22%, transparent), transparent 70%), #000; }
 [data-look="neon"] .grad { filter: drop-shadow(0 0 1.6cqmin color-mix(in srgb, var(--a-glow) 55%, transparent)); }
 
+/* 13 · aurora — a soft northern-lights wash on white, frosted panels */
+[data-look="aurora"] { --bg: #F7F8FC; --fg: #10172A; --fg-2: #3A4458; --muted: #4C5668; --line: rgba(16,23,42,0.12); --acc-text: var(--a-deep); --art-opacity: 0.13;
+  --card: rgba(255,255,255,0.72); --card-fg: #10172A; --card-fg-2: #3D475B; --card-line: rgba(255,255,255,0.95); --chip-bg: rgba(255,255,255,0.75);
+  --acc: var(--a-strong); --hl-a: var(--a-strong); --hl-b: var(--a-alt); --hl-solid: var(--a-strong); --marker: color-mix(in srgb, var(--a-soft) 50%, transparent);
+  --wm-wiz: #10172A; --wm-codes: var(--a-strong); --ok: #0F6A3A; --bad: #A82A2A; --ok-bg: rgba(231,246,238,0.85); --bad-bg: rgba(251,233,233,0.85);
+  --shadow: 0 1.6cqmin 5cqmin rgba(16,23,42,0.08); --radius: 3cqmin; --dw: 660; }
+[data-look="aurora"] .bg { background:
+  radial-gradient(60cqmax 45cqmax at 12% 8%, color-mix(in srgb, var(--a-soft) 60%, transparent), transparent 65%),
+  radial-gradient(55cqmax 45cqmax at 92% 26%, color-mix(in srgb, var(--a-alt) 26%, transparent), transparent 62%),
+  radial-gradient(70cqmax 50cqmax at 60% 104%, color-mix(in srgb, var(--a-mid) 22%, transparent), transparent 65%), #F7F8FC; }
+[data-look="aurora"] .card { -webkit-backdrop-filter: blur(2cqmin) saturate(1.2); backdrop-filter: blur(2cqmin) saturate(1.2); }
+
+/* 14 · swiss — the International Typographic Style: grid, weight, one colour */
+[data-look="swiss"] { --bg: #F2F0EB; --fg: #111111; --fg-2: #333333; --muted: #4F4F4F; --line: #111111; --acc-text: var(--a-deep); --art-opacity: 0.1;
+  --card: transparent; --card-fg: #111111; --card-fg-2: #333333; --card-line: #111111; --chip-bg: transparent;
+  --acc: var(--a-strong); --hl-a: var(--a-strong); --hl-b: var(--a-strong); --hl-solid: var(--a-strong); --marker: color-mix(in srgb, var(--a-soft) 55%, transparent);
+  --wm-wiz: #111111; --wm-codes: var(--a-deep); --ok: #0B6331; --bad: #B0221E; --ok-bg: transparent; --bad-bg: transparent;
+  --dw: 800; --dt: -0.05em; --dlh: 0.92; --radius: 0; --card-bw: 0.3cqmin; }
+[data-look="swiss"] .bg { background: linear-gradient(90deg, rgba(17,17,17,0.07) 0.12cqmin, transparent 0.12cqmin) 0 0 / calc(100% / 6) 100%, #F2F0EB; }
+[data-look="swiss"] .grad { background: none; color: var(--acc-text); -webkit-text-fill-color: currentColor; }
+[data-look="swiss"] .card { border-width: 0.45cqmin 0 0 0; border-radius: 0; padding: 2.4cqmin 0 0; }
+[data-look="swiss"] .flag-col { background: transparent; border-top: 0.45cqmin solid currentColor; border-radius: 0; padding: 2.4cqmin 0 0; }
+
+/* 15 · grain — a vivid gradient under film grain: the 2026 poster */
+[data-look="grain"] { --bg: #0B0B10; --fg: #FFFFFF; --fg-2: rgba(255,255,255,0.88); --muted: rgba(255,255,255,0.8); --line: rgba(255,255,255,0.24);
+  --card: rgba(11,11,16,0.55); --card-fg: #FFFFFF; --card-fg-2: rgba(255,255,255,0.84); --card-line: rgba(255,255,255,0.22); --chip-bg: rgba(11,11,16,0.5);
+  --acc: var(--a-glow); --hl-a: #FFFFFF; --hl-b: var(--a-glow); --hl-solid: var(--a-glow); --marker: color-mix(in srgb, var(--a-glow) 30%, transparent);
+  --wm-wiz: #FFFFFF; --wm-codes: var(--a-glow); --ok: #8EF0B4; --bad: #FFA3A3; --ok-bg: rgba(142,240,180,0.14); --bad-bg: rgba(255,163,163,0.14);
+  --dw: 700; --dt: -0.04em; --art-opacity: 0.45; --radius: 2.4cqmin; }
+[data-look="grain"] .bg { background:
+  radial-gradient(60cqmax 50cqmax at 85% 12%, color-mix(in srgb, var(--a-mid) 62%, #0B0B10), transparent 62%),
+  radial-gradient(55cqmax 45cqmax at 8% 88%, color-mix(in srgb, var(--a-alt) 55%, #0B0B10), transparent 62%), #0B0B10; }
+[data-look="grain"] .bg::after { content: ""; position: absolute; inset: 0; opacity: 0.3; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1.3 -0.15'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 22cqmin 22cqmin; }
+
+/* 16 · noir — the editorial page after dark: serif, rules, one soft accent */
+[data-look="noir"] { --bg: #0B0B0C; --fg: #F4F1EA; --fg-2: #D4CFC5; --muted: #ADA79C; --line: rgba(244,241,234,0.3); --acc-text: var(--a-soft); --art-opacity: 0.14;
+  --card: transparent; --card-fg: #F4F1EA; --card-fg-2: #D4CFC5; --card-line: rgba(244,241,234,0.3); --chip-bg: transparent;
+  --acc: var(--a-soft); --hl-a: var(--a-soft); --hl-b: var(--a-soft); --hl-solid: var(--a-soft); --marker: color-mix(in srgb, var(--a-soft) 30%, transparent);
+  --wm-wiz: #F4F1EA; --wm-codes: var(--a-soft); --ok: #9BE3B8; --bad: #FFADAD; --ok-bg: transparent; --bad-bg: transparent;
+  --font-display: "Instrument Serif", Georgia, serif; --dw: 400; --dt: -0.02em; --dlh: 0.98; --radius: 0; --card-bw: 0.2cqmin; }
+[data-look="noir"] .bg { background: radial-gradient(80cqmax 60cqmax at 50% 0%, #1B1B1E, #0B0B0C 70%); }
+[data-look="noir"] .grad { background: none; color: var(--acc); -webkit-text-fill-color: currentColor; font-style: italic; }
+[data-look="noir"] .card { border-width: 0.2cqmin 0 0 0; border-radius: 0; padding: 2.6cqmin 0 0; }
+[data-look="noir"] .mega, [data-look="noir"] .display { font-size: calc(var(--t-display) * 1.12cqmin * var(--fit)); }
+[data-look="noir"] .flag-col { background: transparent; }
+
 /* ═══════════════════ ACCENT FAMILIES ═══════════════════ */
 [data-accent="blue"]   { --a-strong: #1E7AAB; --a-deep: #135C85; --a-mid: #2E90C4; --a-soft: #8ECAE6; --a-alt: #6B5BD6; --a-ink: #062238; --a-glow: #4FC3FF; --a-alt-glow: #A78BFF; }
 [data-accent="teal"]   { --a-strong: #0B8585; --a-deep: #086363; --a-mid: #0E9C9C; --a-soft: #7FD6CF; --a-alt: #2E90C4; --a-ink: #042A2A; --a-glow: #3FF0DC; --a-alt-glow: #4FC3FF; }
@@ -345,6 +393,8 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .bento.stat-bento .mini .big { font-size: calc(9cqmin * var(--fit)); }
 .bento .big { font-family: var(--font-display); font-weight: 760; font-size: calc(13cqmin * var(--fit)); letter-spacing: -0.05em; line-height: 0.9; color: var(--card-fg); }
 .bento .ico { width: 6cqmin; height: 6cqmin; color: var(--acc); }
+.bento > .card > .ico { width: calc(11cqmin * var(--fit)); height: calc(11cqmin * var(--fit)); padding: calc(2.5cqmin * var(--fit));
+  border-radius: 50%; background: color-mix(in srgb, var(--acc) 15%, transparent); box-sizing: border-box; }
 
 /* charts (vega renders into .chart-slot) */
 .chart-slot { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
@@ -392,7 +442,7 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .flag-col { display: flex; flex-direction: column; gap: 1.8cqmin; padding: 3cqmin; border-radius: var(--radius); min-width: 0; }
 .flag-col.red { background: var(--bad-bg); }
 .flag-col.green { background: var(--ok-bg); }
-.flag-col .h3 { display: flex; align-items: center; gap: 1.4cqmin; white-space: nowrap; font-size: calc(4.2cqmin * var(--fit)); }
+.flag-col .h3 { display: flex; align-items: center; gap: 1.4cqmin; white-space: nowrap; font-size: calc(4.2cqmin * var(--fit) * var(--vfit, 1)); }
 .flag-col.red .h3 { color: var(--bad); } .flag-col.green .h3 { color: var(--ok); }
 .flag-col .small { color: var(--fg); font-weight: 500; font-size: calc(3.3cqmin * var(--fit)); line-height: 1.25; display: flex; gap: 1.4cqmin; }
 .flag-col .small::before { content: "—"; color: var(--muted); }
@@ -425,6 +475,7 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 
 /* quote */
 .quote-mark { font-family: "Instrument Serif", Georgia, serif; font-size: 48cqmin; line-height: 1; height: 19cqmin; margin-top: -5cqmin; color: var(--acc); overflow: visible; }
+[data-layout="card"] .quote-mark { font-size: 32cqmin; height: 12cqmin; margin-top: -3cqmin; }
 .quote-text { font-family: var(--font-display); font-weight: var(--dw); letter-spacing: var(--dt); line-height: 1.08; text-wrap: balance; }
 
 /* decision tree / diagrams (mermaid renders into .diagram) */
@@ -514,7 +565,8 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .bub.us { align-self: flex-end; background: var(--acc); color: var(--bubble-us-fg, #FFFFFF); border-bottom-right-radius: 0.8cqmin; font-weight: 500; }
 .bub-who { font-family: var(--font-mono); font-size: 2.1cqmin; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 .bub-who.us { align-self: flex-end; }
-[data-look="midnight"], [data-look="neon"], [data-look="terminal"], [data-look="duotone"], [data-look="blueprint"], [data-look="glass"], [data-look="bold"] { --bubble-us-fg: #04121F; }
+[data-look="midnight"], [data-look="neon"], [data-look="terminal"], [data-look="duotone"], [data-look="blueprint"], [data-look="glass"], [data-look="bold"],
+[data-look="grain"], [data-look="noir"] { --bubble-us-fg: #04121F; }
 
 /* iceberg — the tip above the waterline, the mass below it */
 .berg { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -585,3 +637,6 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .art-corner { right: -12cqmin; top: -10cqmin; width: 70cqmin; height: 70cqmin; opacity: calc(var(--art-opacity) * 1.6); }
 .art-band { left: 0; right: 0; bottom: 0; width: 100%; height: 42%; opacity: calc(var(--art-opacity) * 1.4); }
 .art-side { right: -6cqmin; top: 12%; width: 58%; height: 76%; opacity: calc(var(--art-opacity) * 2.2); }
+/* figure art in the layout's own empty space: nothing to compete with, so it
+   can be seen */
+.art-space { opacity: calc(var(--art-opacity) * 2.6); }

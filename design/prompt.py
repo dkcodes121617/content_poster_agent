@@ -1,4 +1,5 @@
-"""The v2 writer: a prompt generated from the registry, and a strict parser.
+"""The v2 writer: a prompt generated from the registry, a strict parser, and a
+repair loop that fixes only what was rejected.
 
 The deck's shape is decided by design/select.py before this runs. The writer
 is told exactly which format each slide is, which fields that format takes and
@@ -6,24 +7,29 @@ how many characters each field can hold - generated from design/registry.py,
 so the prompt can never describe a field the renderer does not have, or a
 budget the validator does not enforce.
 
-    system = prompt.system(facts_block, stats_block)
-    user   = prompt.user(plan, platform=..., pillar=..., extra=..., ...)
-    draft, problems = prompt.parse(raw, plan, snapshot)
+    draft, problems, attempts = prompt.write(client, system=..., user=..., plan=plan,
+                                             snapshot=snapshot, gates=check_fn)
 
-`problems` are worded as regeneration notes: the write loop feeds them back
-and asks again, which fixes most of them on the second attempt.
+## Repair, not regeneration
+
+The first real run regenerated whole decks on every rejection, and each fresh
+draft fixed the flagged slide and broke a different one: five of ten decks
+never converged. Now a rejected draft keeps everything that passed, and the
+writer is asked for replacements of only the slides (or caption) that failed.
+A whole-deck rewrite happens only when the draft could not be read at all.
 """
 from __future__ import annotations
 
 import json
 import re
 
-from design.registry import FORMATS, Field, validate
+from design.registry import FORMATS, Field, budget, validate
 from design.select import DesignPlan
 from prompts.library import (
     DIVISION_OF_LABOUR,
     PILLAR_BRIEFS,
     PLATFORM_BRIEFS,
+    REGENERATE_NOTE,
     post_system_prompt,
 )
 
@@ -57,7 +63,14 @@ so write them the way a good designer would want them:
     accent colour. Never more than one per field, never a whole sentence.
     ==double equals== draws a highlighter instead; use it at most once a deck.
   - Plain text otherwise: no markdown, no bullets, no emoji, no HTML, no
-    backticks, no links. Those characters reach the canvas literally."""
+    backticks, no links. Those characters reach the canvas literally.
+
+A FACT KEEPS ITS EXACT MEANING ON A SLIDE. "26 projects delivered" never becomes
+"26 projects delivered this way" or "26 projects, all started with a prototype":
+the number is true, the claim attached to it is invented. Attach a number only
+to what the facts say it counts. A quote is a real person's own words with
+their own name and company exactly as the facts give them - never a project
+or company they are not connected to."""
 
 HOOK_RULES = """\
 THE FIRST SLIDE (the hook) decides whether anything else is seen.
@@ -69,7 +82,9 @@ THE FIRST SLIDE (the hook) decides whether anything else is seen.
     beats "The hidden risks of outsourcing".
   - No clickbait that the deck does not pay off, no "in this post", no
     "you won't believe", no question nobody would ask.
-  - `sub` (optional) is one line saying what the swipe gets them."""
+  - `sub` (optional) is one line saying what the swipe gets them.
+  - A count in the hook or sub ("five signs") is a promise: the deck must
+    contain exactly that many."""
 
 GOAL_NOTES = {
     "saves": "This deck is built to be SAVED: make the middle slides a reference someone returns to.",
@@ -79,15 +94,42 @@ GOAL_NOTES = {
     "clicks": "This deck is built to start a CONVERSATION about the free prototype, plainly.",
 }
 
+# What a layout changes about the words. Only where it changes something.
+LAYOUT_NOTES = {
+    ("vs", "columns"): "COLUMNS layout: fill left and right, each with a label and 2-4 points; leave rows out",
+    ("vs", "table"): "TABLE layout: fill 3-5 rows (aspect, left, right) plus left.label and right.label; points are not shown",
+    ("stat", "ring"): "RING layout: the value must be a percentage like '73%'",
+    ("stat", "bento"): "BENTO layout: add 2-3 tiles of supporting figures from the facts",
+    ("hook", "ticker"): "a one-word `ticker` runs huge behind the hook - choose the word that names the topic",
+    ("hook", "split"): "the hook shares the slide with artwork - keep it to 6 words or fewer",
+    ("timeline", "horizontal"): "HORIZONTAL layout: at most 3 events on a portrait canvas, short 'what' lines",
+    ("mockup", "phone"): "PHONE layout: fill `app` (name, category, tech) from the project's own facts",
+    ("mockup", "browser"): "BROWSER layout: `url` is the project's page, e.g. wizcodes.site/work/<slug>",
+    ("checklist", "bento"): "BENTO layout: items are short (under 40 characters) and each gets an icon",
+    ("cheat_sheet", "bento"): "BENTO layout: the first and last cells span the full width - make them the headline cells",
+    ("decision_tree", "td"): "keep questions short: four answers sit side by side",
+}
+
+# Code and terminal text is shown character for character: a '#' starts a
+# comment and '*' multiplies, so markup and emphasis checks do not apply.
+_VERBATIM = {("code", "code"), ("terminal", "lines")}
+
+
+def _shown(n: int) -> int:
+    """The limit the writer is told: a little under the real one. A model
+    given the exact limit treats it as a target and overshoots - the first
+    real run missed by 1-7 characters in a third of its rejections."""
+    return n if n <= 16 else int(n * 0.9)
+
 
 # ── spec rendering ───────────────────────────────────────────────────────────
 
 
-def _field_line(name: str, f: Field, indent: str = "      ") -> list[str]:
+def _field_line(name: str, f: Field, indent: str = "      ", canvas: str = "portrait") -> list[str]:
     req = "required" if f.required else "optional"
     note = f" - {f.note}" if f.note else ""
     if f.kind == "text":
-        return [f"{indent}{name}: text, {req}, max {f.max} characters{note}"]
+        return [f"{indent}{name}: text, {req}, max {_shown(budget(f.max, canvas))} characters{note}"]
     if f.kind == "num":
         return [f"{indent}{name}: number, {req}{note}"]
     if f.kind == "bool":
@@ -97,11 +139,11 @@ def _field_line(name: str, f: Field, indent: str = "      ") -> list[str]:
     if f.kind == "tree":
         return [f"{indent}{name}: decision tree, {req}{note}",
                 f"{indent}  shape: {{\"q\": \"question?\", \"yes\": <node or short leaf text>, \"no\": <node or leaf>}}",
-                f"{indent}  questions max 48 characters, leaves max 40 characters"]
+                f"{indent}  questions max 43 characters, leaves max 36 characters"]
     if f.kind == "obj":
         out = [f"{indent}{name}: object, {req}{note}"]
         for k, sub in (f.fields or {}).items():
-            out += _field_line(k, sub, indent + "    ")
+            out += _field_line(k, sub, indent + "    ", canvas)
         return out
     if f.kind == "list":
         span = f"{f.min}-{f.max}" if f.min != f.max else f"exactly {f.min}"
@@ -110,10 +152,10 @@ def _field_line(name: str, f: Field, indent: str = "      ") -> list[str]:
         if sub_fields:
             out = [f"{indent}{name}: list of {span} objects, {req}{note}; each object:"]
             for k, sub in sub_fields.items():
-                out += _field_line(k, sub, indent + "    ")
+                out += _field_line(k, sub, indent + "    ", canvas)
             return out
         if isinstance(item, Field) and item.kind == "text":
-            return [f"{indent}{name}: list of {span} texts, each max {item.max} characters, {req}{note}"]
+            return [f"{indent}{name}: list of {span} texts, each max {_shown(budget(item.max, canvas))} characters, {req}{note}"]
         return [f"{indent}{name}: list of {span}, {req}{note}"]
     return [f"{indent}{name}: {f.kind}, {req}{note}"]
 
@@ -147,23 +189,23 @@ def deck_spec(plan: DesignPlan) -> str:
     """The exact deck to write, slide by slide, from the registry."""
     lines = [(f"THE DECK: {len(plan.slides)} slide{'s' if len(plan.slides) != 1 else ''}, in this order. "
               "Each slide's format is fixed - write the words for it, not a different structure."), ""]
-    first_seen: dict[str, int] = {}
+    first_seen: dict[tuple, int] = {}
     for i, s in enumerate(plan.slides, 1):
         fmt = FORMATS[s.format]
-        if s.format in first_seen:
-            lines.append(f"  Slide {i}: {fmt.label} [{s.format}] - same fields as slide {first_seen[s.format]}, new content")
+        key = (s.format, s.layout)
+        layout_note = LAYOUT_NOTES.get(key)
+        if key in first_seen:
+            lines.append(f"  Slide {i}: {fmt.label} [{s.format}] - same fields as slide {first_seen[key]}, new content")
             lines.append("")
             continue
-        first_seen[s.format] = i
+        first_seen[key] = i
         lines.append(f"  Slide {i}: {fmt.label} [{s.format}] - {fmt.good_for}")
+        if layout_note:
+            lines.append(f"      ({layout_note})")
         for name, f in fmt.fields.items():
-            lines += _field_line(name, f)
+            lines += _field_line(name, f, canvas=plan.canvas)
         if s.format == "cta":
             lines.append(f"      (this closer's buttons ask the reader to {s.layout}; the headline should make that the natural next step)")
-        if s.format == "stat" and s.layout == "ring":
-            lines.append("      (this layout draws a ring: the value must be a percentage like '73%')")
-        if s.format == "mockup":
-            lines.append("      (project must be the slug of a real project in the facts; for the phone layout fill `app` from that project)")
         lines.append("")
     example = {"title": "...", "caption": "...", "hashtags": ["..."],
                "slides": [{"format": s.format, "content": {k: _example_value(f) for k, f in FORMATS[s.format].fields.items() if f.required}}
@@ -218,6 +260,31 @@ def user(plan: DesignPlan, *, platform: str, pillar: str, extra: str = "",
     return "\n".join(x for x in lines if x is not None)
 
 
+REPAIR_NOTE = """\
+YOUR DRAFT WAS CHECKED. Most of it passed and is kept exactly as it is:
+
+{draft}
+
+These parts were rejected:
+{problems}
+
+Fix only what was rejected. Return one JSON object containing only the
+replacements, in this shape:
+  {{"slides": [{{"index": <slide number>, "content": {{<the whole corrected content for that slide>}}}}],
+   "caption": "<only if the caption was rejected>",
+   "hashtags": ["<only if the hashtags were rejected>"]}}
+Leave out every slide that was not rejected."""
+
+
+def repair(user_prompt: str, draft: dict, problems: list[str]) -> str:
+    compact = {"caption": draft.get("caption", ""), "hashtags": draft.get("hashtags", []),
+               "slides": [{"index": i, "format": s["format"], "content": s["content"]}
+                          for i, s in enumerate(draft.get("slides") or [], 1)]}
+    return user_prompt + "\n\n" + REPAIR_NOTE.format(
+        draft=json.dumps(compact, ensure_ascii=False),
+        problems="\n".join(f"- {p}" for p in problems[:16]))
+
+
 # ── parsing ──────────────────────────────────────────────────────────────────
 
 _MARKUP = (
@@ -264,11 +331,16 @@ def _fix_icons(value) -> None:
     walk(value)
 
 
-def parse(raw: str, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[str]]:
-    """The draft and the reasons it cannot be used ([] when it can)."""
+def parse(raw, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[str]]:
+    """The draft and the reasons it cannot be used ([] when it can).
+
+    `raw` is the model's text, or an already-parsed dict (a merged repair).
+    Every slide problem starts "slide N", which is how repair() knows what to
+    ask for again.
+    """
     from wizcore.llm.client import extract_json
 
-    data = extract_json(raw)
+    data = raw if isinstance(raw, dict) else extract_json(raw)
     if not isinstance(data, dict):
         return None, ["Return one JSON object, with nothing before or after it."]
     problems: list[str] = []
@@ -286,10 +358,14 @@ def parse(raw: str, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[
             problems.append(f"slide {i} must be a {want.format}, not {got.get('format')}")
         if not isinstance(content, dict):
             problems.append(f"slide {i} ({want.format}) needs a 'content' object")
-            continue
+            content = {}
         _fix_icons(content)
-        problems += [f"slide {i} ({want.format}): {p}" for p in validate(want.format, content)]
+        if want.format == "mockup":
+            _fill_app(content, snapshot)
+        problems += [f"slide {i} ({want.format}): {p}" for p in validate(want.format, content, want.layout, plan.canvas)]
         for where, text in _texts(content):
+            if (want.format, where.split("[")[0].split(".")[0]) in _VERBATIM:
+                continue
             for pattern, what in _MARKUP:
                 if pattern.search(text):
                     problems.append(f"slide {i} {where} contains {what} - slides are plain text")
@@ -303,30 +379,153 @@ def parse(raw: str, plan: DesignPlan, snapshot=None) -> tuple[dict | None, list[
     problems += grounded(slides, snapshot)
     caption = str(data.get("caption") or "").strip()
     if not caption:
-        problems.append("'caption' is empty")
+        problems.append("caption: it is empty")
     hashtags = [str(h).strip().lstrip("#") for h in (data.get("hashtags") or []) if str(h).strip()]
     draft = {"title": str(data.get("title") or "").strip()[:100], "caption": caption,
              "hashtags": hashtags, "slides": slides}
     return draft, problems
 
 
+_WORD = re.compile(r"[a-z0-9']+")
+_STOP = frozenset({"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "it", "is", "was", "were",
+                   "be", "been", "are", "this", "that", "we", "our", "you", "your", "they", "their", "at", "by",
+                   "from", "as", "so", "very", "really", "just"})
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in _WORD.findall(str(text).lower()) if w not in _STOP and len(w) > 2}
+
+
+def _fill_app(content: dict, snapshot) -> None:
+    """A phone mockup shows the app's identity, and the facts already have
+    it: name, category and stack come from the project, never from the
+    writer - the first real phone mockup left them out and drew "Ap" on an
+    empty screen."""
+    if snapshot is None:
+        return
+    project = next((p for p in getattr(snapshot, "projects", []) if p.slug and p.slug == content.get("project")), None)
+    if project is None:
+        return
+    name = (project.name or "")[:24]
+    initials = "".join(w[0] for w in name.split()[:2]).upper() or name[:2]
+    content["app"] = {"name": name, "initials": initials[:2], "category": (project.category or "")[:24],
+                      "tech": [str(t)[:14] for t in (project.tech or [])[:3]]}
+
+
+# A known figure with a claim bolted on: "26 projects delivered THIS WAY",
+# "ALL started with a prototype". The number is true; the qualifier is not in
+# the facts. Seen twice in real drafts despite the writing rule.
+_UNIVERSAL = re.compile(r"\b(this way|all|every|each|always|without exception)\b", re.I)
+
+
 def grounded(slides: list[dict], snapshot) -> list[str]:
     """Claims the slides make by STRUCTURE, which the prose gate cannot see:
-    a mockup naming a project, a quote naming a person."""
+    a mockup naming a project, a quote naming a person, a role, their words."""
     if snapshot is None:
         return []
     problems: list[str] = []
     slugs = {p.slug for p in getattr(snapshot, "projects", []) if p.slug}
-    people = {t.name.strip().lower() for t in getattr(snapshot, "testimonials", []) if t.name}
+    testimonials = list(getattr(snapshot, "testimonials", []))
+    known = {str(n) for n in (snapshot.known_numbers() if hasattr(snapshot, "known_numbers") else set())}
     for i, s in enumerate(slides, 1):
         c = s.get("content") or {}
+        if s["format"] == "stat" and str(c.get("value", "")).strip() in known:
+            said = f"{c.get('label', '')} {c.get('context', '')}"
+            m = _UNIVERSAL.search(said)
+            if m:
+                problems.append(f"slide {i}: '{m.group(0)}' attaches a claim to {c.get('value')} that the facts do not make - "
+                                "label the number with what the facts say it counts, nothing more")
         if s["format"] == "mockup" and c.get("project") and c["project"] not in slugs:
             problems.append(f"slide {i}: project '{c['project']}' is not a WizCodes project slug - use one from the facts")
-        if s["format"] == "quote":
-            name = str(c.get("name") or "").strip().lower()
-            if name and name not in people and "wizcodes" not in name:
-                problems.append(f"slide {i}: '{c.get('name')}' is not a testimonial in the facts - quote a real client or attribute the line to WizCodes")
+        if s["format"] != "quote":
+            continue
+        name = str(c.get("name") or "").strip()
+        if not name or "wizcodes" in name.lower():
+            continue                                   # the studio's own principle
+        named = [t for t in testimonials if t.name and re.search(rf"\b{re.escape(t.name.lower())}\b", name.lower())]
+        if not named:
+            problems.append(f"slide {i}: '{name}' is not a testimonial in the facts - quote a real client by the name the facts give, or attribute the line to WizCodes")
+            continue
+        quote = _words(c.get("quote", ""))
+        best = max(named, key=lambda t: len(quote & _words(t.text)))
+        if quote and len(quote & _words(best.text)) / len(quote) < 0.6:
+            problems.append(f"slide {i}: the quote is not {best.name}'s own words - use their testimonial text, trimmed")
+        role = _words(c.get("role", ""))
+        known = _words(" ".join(str(getattr(best, k, "") or "") for k in ("role", "company", "country", "platform")))
+        if role - known - {"client", "founder", "customer"}:
+            problems.append(f"slide {i}: the role '{c.get('role')}' is not in {best.name}'s testimonial - use their company "
+                            f"or role as the facts give it, or leave it out")
     return problems
+
+
+# ── the loop ─────────────────────────────────────────────────────────────────
+
+_SLIDE = re.compile(r"^slide (\d+)\b")
+
+
+def write(client, *, system: str, user: str, plan: DesignPlan, snapshot=None, gates=None,
+          max_calls: int = 4, max_tokens: int = 8000, temperature: float = 0.75,
+          on_attempt=None) -> tuple[dict | None, list[str], list[dict]]:
+    """Draft a deck, check it, and repair what fails.
+
+    `gates(draft) -> problems` runs the prose gates (grounding, claims, voice,
+    platform...) and should prefix slide-specific problems "slide N:" and
+    caption problems "caption:" so the repair can target them.
+    Returns (draft, remaining problems, attempts).
+    """
+    import time
+
+    attempts: list[dict] = []
+    draft, problems = None, ["not attempted"]
+    prompt_text, mode = user, "draft"
+    for call in range(1, max_calls + 1):
+        t0 = time.time()
+        try:
+            raw = client.complete(system=system, user=prompt_text, max_tokens=max_tokens, temperature=temperature)
+        except Exception as e:  # recorded, never raised: one failed call must not end a run
+            problems = [f"generation failed: {e}"]
+            attempts.append({"call": call, "mode": "error", "seconds": round(time.time() - t0, 1), "problems": problems})
+            break
+        if mode == "repair":
+            draft, problems = _merge(draft, raw, plan, snapshot)
+        else:
+            draft, problems = parse(raw, plan, snapshot)
+        if draft is not None and not problems and gates:
+            problems = gates(draft)
+        attempts.append({"call": call, "mode": mode, "seconds": round(time.time() - t0, 1), "problems": list(problems)})
+        if on_attempt:
+            on_attempt(attempts[-1])
+        if draft is not None and not problems:
+            break
+        targeted = draft is not None and all(_SLIDE.match(p) or p.startswith("caption") for p in problems)
+        if targeted:
+            prompt_text, mode = repair(user, draft, problems), "repair"
+        else:
+            draft, mode = None, "draft"
+            prompt_text = user + "\n\n" + REGENERATE_NOTE.format(reasons="\n".join(f"- {p}" for p in problems[:12]))
+    return draft, problems, attempts
+
+
+def _merge(draft: dict, raw: str, plan: DesignPlan, snapshot) -> tuple[dict | None, list[str]]:
+    """Apply a repair's replacements to the kept draft, then check it whole."""
+    from wizcore.llm.client import extract_json
+
+    data = extract_json(raw)
+    if not isinstance(data, dict):
+        return draft, ["Return one JSON object with the replacements, nothing before or after it."]
+    slides = [{"format": s["format"], "content": s["content"]} for s in draft["slides"]]
+    for rep in data.get("slides") or []:
+        try:
+            idx = int(rep.get("index")) - 1
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 0 <= idx < len(slides) and isinstance(rep.get("content"), dict):
+            slides[idx]["content"] = rep["content"]
+    merged = {"title": draft.get("title", ""),
+              "caption": data.get("caption") or draft.get("caption", ""),
+              "hashtags": data.get("hashtags") or draft.get("hashtags", []),
+              "slides": slides}
+    return parse(merged, plan, snapshot)
 
 
 # ── text for the prose gates ─────────────────────────────────────────────────

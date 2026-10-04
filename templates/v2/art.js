@@ -207,6 +207,78 @@
       return svg(W, H, b);
     },
 
+    // Streamlines through a smooth field: the frozen-motion look of a long
+    // exposure. Each line is traced step by step along the field's angle.
+    flow(rng, W, H) {
+      const f1 = rnd(rng, 0.8, 2.2), f2 = rnd(rng, 0.8, 2.2), p1 = rng() * 6.283, p2 = rng() * 6.283, twist = rnd(rng, 0.7, 1.3);
+      const angle = (x, y) => (Math.sin((x / W) * f1 * 6.283 + p1) + Math.cos((y / H) * f2 * 6.283 + p2)) * twist * Math.PI * 0.5;
+      const lines = 70 + Math.floor(rng() * 40), step = Math.min(W, H) * 0.012;
+      let b = '';
+      for (let i = 0; i < lines; i++) {
+        let x = rnd(rng, -0.05, 1.05) * W, y = rnd(rng, -0.05, 1.05) * H;
+        let d = `M${f(x)},${f(y)}`;
+        const len = 36 + Math.floor(rng() * 50);
+        for (let k = 0; k < len; k++) {
+          const a = angle(x, y);
+          x += Math.cos(a) * step; y += Math.sin(a) * step;
+          d += ` L${f(x)},${f(y)}`;
+        }
+        const hot = i % 9 === 0;
+        b += `<path d="${d}" fill="none" style="stroke:${hot ? C.acc : C.line}" stroke-width="${hot ? 2.2 : 1.2}" stroke-linecap="round" opacity="${f(rnd(rng, 0.35, 0.95))}"/>`;
+      }
+      return svg(W, H, b);
+    },
+
+    // A print halftone: dots on a hex grid, shrinking away from one point.
+    halftone(rng, W, H) {
+      const s = Math.min(W, H) * rnd(rng, 0.03, 0.042);
+      const cx = W * rnd(rng, 0.6, 1.1), cy = H * rnd(rng, -0.15, 0.35), R = Math.hypot(W, H) * rnd(rng, 0.6, 0.85);
+      let b = '';
+      for (let row = 0, y = s / 2; y < H + s; y += s * 0.87, row++) {
+        for (let x = row % 2 ? s / 2 : 0; x < W + s; x += s) {
+          const r = s * 0.5 * Math.max(0, 1 - Math.hypot(x - cx, y - cy) / R) ** 1.3;
+          if (r > 0.7) b += `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}"/>`;
+        }
+      }
+      return svg(W, H, `<g style="fill:${C.acc}">${b}</g>`);
+    },
+
+    // A perspective floor running to a horizon: the synthwave grid, faded
+    // toward the vanishing point so it reads as depth rather than lines.
+    grid(rng, W, H) {
+      const id = 'gr' + Math.floor(rng() * 1e6);
+      const horizon = H * rnd(rng, 0.38, 0.55), vx = W * rnd(rng, 0.3, 0.7);
+      const defs = `<linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="${f(horizon / H + 0.04)}" stop-color="#fff" stop-opacity="0.15"/><stop offset="1" stop-color="#fff" stop-opacity="1"/></linearGradient>` +
+        `<mask id="${id}"><rect width="${W}" height="${H}" fill="url(#${id}g)"/></mask>`;
+      let b = '';
+      const cols = 14;
+      for (let i = -cols * 2; i <= cols * 3; i++) {
+        b += `<line x1="${f(vx)}" y1="${f(horizon)}" x2="${f((i / cols) * W)}" y2="${H}" style="stroke:${i % 5 === 0 ? C.acc : C.line}" stroke-width="${i % 5 === 0 ? 2 : 1.2}"/>`;
+      }
+      for (let k = 1; k <= 16; k++) {
+        const t = k / 16, y = horizon + (H - horizon) * t * t;
+        b += `<line x1="0" y1="${f(y)}" x2="${W}" y2="${f(y)}" style="stroke:${k % 4 === 0 ? C.acc : C.line}" stroke-width="${k % 4 === 0 ? 2 : 1.2}"/>`;
+      }
+      b += `<line x1="0" y1="${f(horizon)}" x2="${W}" y2="${f(horizon)}" style="stroke:${C.acc}" stroke-width="2.4" opacity="0.8"/>`;
+      return svg(W, H, `<g mask="url(#${id})">${b}</g>`, defs);
+    },
+
+    // Concentric arcs from one or two corners, a few of them solid.
+    arcs(rng, W, H) {
+      const corners = [[0, 0], [W, 0], [0, H], [W, H]];
+      const picks = rng() < 0.5 ? [pick(rng, corners)] : [corners[0], corners[3]].sort(() => rng() - 0.5).slice(0, 2);
+      let b = '';
+      for (const [cx, cy] of picks) {
+        const n = 10 + Math.floor(rng() * 7), gap = Math.min(W, H) * rnd(rng, 0.045, 0.07);
+        for (let i = 1; i <= n; i++) {
+          const r = gap * i;
+          const hot = i % 4 === 0, dash = rng() < 0.25 ? ` stroke-dasharray="${f(rnd(rng, 6, 20))} ${f(rnd(rng, 8, 24))}"` : '';
+          b += `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}" fill="none" style="stroke:${hot ? C.acc : C.line}" stroke-width="${hot ? f(gap * 0.32) : 1.4}"${dash} opacity="${hot ? 0.85 : 1}"/>`;
+        }
+      }
+      return svg(W, H, b);
+    },
+
     rays(rng, W, H) {
       const cx = W * rnd(rng, 0.6, 1.0), cy = H * rnd(rng, -0.1, 0.25), n = 18 + Math.floor(rng() * 10), R = Math.hypot(W, H) * 1.2;
       let b = '';

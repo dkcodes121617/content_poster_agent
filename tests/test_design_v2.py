@@ -8,6 +8,7 @@ what the parser refuses before anything reaches Chromium.
 from __future__ import annotations
 
 import collections
+import itertools
 import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -79,7 +80,7 @@ def test_deck_structure(platform, slides):
         assert min(slides, 7) <= len(f) <= slides, p.brief()
         body = collections.Counter(f[1:-1])
         assert all(v <= select.REPEAT_LIMIT.get(k, 1) for k, v in body.items()), p.brief()
-        assert not any(a == b and a not in select.SERIES for a, b in zip(f, f[1:], strict=False)), p.brief()
+        assert not any(a == b and a not in select.SERIES for a, b in itertools.pairwise(f)), p.brief()
         for s in p.slides:
             assert s.layout in FORMATS[s.format].layouts
 
@@ -96,11 +97,11 @@ def test_repeated_formats_change_layout_inside_a_deck():
 def test_rotation_varies_the_feed(platform, slides):
     plans = _simulate(platform, slides, days=30, has_stats=True, has_project=True)
     looks = [p.look for p in plans]
-    assert all(a != b for a, b in zip(looks, looks[1:], strict=False)), "same look twice in a row"
+    assert all(a != b for a, b in itertools.pairwise(looks)), "same look twice in a row"
     assert len(set(looks)) >= 9
     assert len({p.recipe for p in plans}) >= 9
     arts = [p.art for p in plans]
-    assert all(not (a == b != "none") for a, b in zip(arts, arts[1:], strict=False)), "same art twice in a row"
+    assert all(not (a == b != "none") for a, b in itertools.pairwise(arts)), "same art twice in a row"
 
 
 def test_no_chart_without_stats_and_no_mockup_without_projects():
@@ -146,7 +147,7 @@ def test_spec_names_every_slide_and_its_budgets():
     spec = prompt.deck_spec(plan)
     for i, s in enumerate(plan.slides, 1):
         assert f"Slide {i}:" in spec and f"[{s.format}]" in spec
-    assert "max 70 characters" in spec                 # the hook's budget, from the registry
+    assert "max 63 characters" in spec                 # the hook's 70, stated a little under (see _shown)
     assert "each object:" in spec                      # list-of-object fields are spelled out
     assert "Icon fields take one of" in spec
 
@@ -186,17 +187,25 @@ def test_unknown_icons_are_replaced_not_regenerated():
 @dataclass
 class _Project:
     slug: str
+    name: str = "AI WhatsApp Automation"
+    category: str = "AI Automation"
+    tech: list = field(default_factory=lambda: ["Python", "WhatsApp API", "LLM"])
 
 
 @dataclass
 class _Person:
     name: str
+    text: str = "If we cannot show you a working prototype first, we have not earned the contract."
+    role: str = ""
+    company: str = "Northgate"
+    country: str = "United Kingdom"
+    platform: str = ""
 
 
 @dataclass
 class _Snapshot:
     projects: list = field(default_factory=lambda: [_Project("ai-whatsapp-automation")])
-    testimonials: list = field(default_factory=lambda: [_Person("Priya Raman")])
+    testimonials: list = field(default_factory=lambda: [_Person("WizCodes Client")])
 
 
 def test_structural_claims_are_grounded():
@@ -214,3 +223,117 @@ def test_structural_claims_are_grounded():
 def test_visible_text_writes_chart_numbers_out_for_the_grounding_gate():
     text = prompt.visible_text([{"format": "chart", "content": GOOD["chart"]}])
     assert "Projects: 26." in text and "*" not in text
+
+
+def test_quote_must_be_the_persons_own_words_and_role():
+    snap = _Snapshot(testimonials=[_Person("Alex", text="Excellent communication, clean code, and timely delivery.", company="LeoTech")])
+    plan = _plan(("hook", "quote", "cta"))
+    real = {"quote": "Excellent communication, clean code, and timely delivery.", "name": "Alex", "role": "LeoTech"}
+    _, p = prompt.parse(_raw(plan, {1: real}), plan, snap)
+    assert not [x for x in p if "slide 2" in x]
+    # "Alex, LeoTech" in the name field is still Alex
+    _, p = prompt.parse(_raw(plan, {1: dict(real, name="Alex, LeoTech", role="")}), plan, snap)
+    assert not [x for x in p if "slide 2" in x]
+    # a project he is not connected to
+    _, p = prompt.parse(_raw(plan, {1: dict(real, role="CuePilot Client")}), plan, snap)
+    assert any("role" in x for x in p)
+    # words he never wrote
+    _, p = prompt.parse(_raw(plan, {1: dict(real, quote="They doubled our revenue in a month.")}), plan, snap)
+    assert any("own words" in x for x in p)
+
+
+def test_code_is_verbatim():
+    plan = _plan(("hook", "code", "cta"))
+    code = dict(GOOD["code"], code="# keys come from the environment\ndef f(*args, **kwargs):\n    return a * b")
+    _, p = prompt.parse(_raw(plan, {1: code}), plan)
+    assert not [x for x in p if "slide 2" in x], p
+
+
+def test_budgets_shrink_on_shorter_canvases_but_labels_do_not():
+    take = {"take": "x" * 70}
+    assert validate("hot_take", take) == []
+    assert validate("hot_take", take, canvas="square")            # 70 > 63 on a square canvas
+    eyebrow = dict(GOOD["hook"], eyebrow="e" * 32)
+    assert validate("hook", eyebrow, canvas="square") == []       # one-line labels keep their budget
+
+
+def test_vs_validation_follows_the_layout():
+    cols = {"left": {"label": "A", "points": ["one", "two"]}, "right": {"label": "B", "points": ["one", "two"]}}
+    assert validate("vs", cols, "columns") == []
+    assert any("TABLE" in x for x in validate("vs", cols, "table"))
+    table = {"left": {"label": "A"}, "right": {"label": "B"},
+             "rows": [{"aspect": "x", "left": "a", "right": "b"}] * 3}
+    assert validate("vs", table, "table") == []
+    assert any("COLUMNS" in x for x in validate("vs", table, "columns"))
+
+
+class _FakeClient:
+    """Plays back responses; records what it was asked."""
+
+    def __init__(self, responses):
+        self.responses, self.prompts = list(responses), []
+
+    def complete(self, *, system, user, max_tokens=0, temperature=None):
+        self.prompts.append(user)
+        return self.responses.pop(0)
+
+
+def test_write_repairs_only_the_failing_slide():
+    plan = _plan()
+    over = dict(GOOD["cheat_sheet"], title="x" * 90)
+    fixed = {"slides": [{"index": 2, "content": GOOD["cheat_sheet"]}]}
+    client = _FakeClient([_raw(plan, {1: over}), json.dumps(fixed)])
+    draft, problems, attempts = prompt.write(client, system="s", user="u", plan=plan)
+    assert problems == [] and [a["mode"] for a in attempts] == ["draft", "repair"]
+    assert "YOUR DRAFT WAS CHECKED" in client.prompts[1] and "slide 2" in client.prompts[1]
+    assert draft["slides"][1]["content"]["title"] == GOOD["cheat_sheet"]["title"]
+    assert draft["slides"][0]["content"] == GOOD["hook"]          # untouched slides are kept
+
+
+def test_write_regenerates_when_the_draft_cannot_be_read():
+    plan = _plan()
+    client = _FakeClient(["not json at all", _raw(plan)])
+    _draft, problems, attempts = prompt.write(client, system="s", user="u", plan=plan)
+    assert problems == [] and [a["mode"] for a in attempts] == ["draft", "draft"]
+
+
+def test_gates_say_where_each_problem_is(snapshot):
+    from design import gates
+
+    plan = _plan(("hook", "steps", "cta"))
+    steps = {"title": "How it runs", "steps": [{"head": "Week 1: we build the core flow"}, {"head": "Week 2: you test it"},
+                                               {"head": "Week 3: you decide"}]}
+    draft, _ = prompt.parse(_raw(plan, {1: steps}), plan)
+    problems = gates.check(draft, platform_name="instagram", snapshot=snapshot, image_count=3)
+    assert any(x.startswith("slide 2: [claims]") for x in problems), problems
+
+
+def test_phone_mockups_take_the_app_from_the_facts():
+    plan = _plan(("hook", "mockup", "cta"))
+    plan.slides[1] = select.SlidePlan("mockup", "phone", "bg")
+    content = {"title": "A WhatsApp assistant", "project": "ai-whatsapp-automation"}
+    draft, _ = prompt.parse(_raw(plan, {1: content}), plan, _Snapshot())
+    app = draft["slides"][1]["content"]["app"]
+    assert app["name"] == "AI WhatsApp Automation" and app["initials"] == "AW" and app["tech"][0] == "Python"
+
+
+def test_a_known_number_cannot_carry_an_invented_claim(snapshot):
+    plan = _plan(("hook", "stat", "cta"))
+    figure = sorted(snapshot.known_numbers(), key=len)[0]       # a number the facts really contain
+    bad = {"value": figure, "label": "projects delivered this way", "source": "wizcodes.site"}
+    _, p = prompt.parse(_raw(plan, {1: bad}), plan, snapshot)
+    assert any("this way" in x for x in p)
+    ok = {"value": figure, "label": "projects delivered", "source": "wizcodes.site"}
+    _, p = prompt.parse(_raw(plan, {1: ok}), plan, snapshot)
+    assert not [x for x in p if x.startswith("slide 2")]
+
+
+def test_crowded_quadrant_points_are_rejected():
+    pts = [{"label": "A", "x": 0.8, "y": 0.8}, {"label": "B", "x": 0.85, "y": 0.75}]
+    content = dict(GOOD["quadrant"], points=pts)
+    assert any("on top of each other" in x for x in validate("quadrant", content))
+
+
+def test_donuts_are_never_picked_automatically():
+    for p in _simulate("instagram", 8, days=40, has_stats=True, has_project=True):
+        assert not any(s.format == "chart" and s.layout == "donut" for s in p.slides)

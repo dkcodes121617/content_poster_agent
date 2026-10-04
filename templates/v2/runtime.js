@@ -67,6 +67,8 @@
         const r = slot.getBoundingClientRect();
         slot.innerHTML = window.ART[art.kind](window.artRng(art.seed || 1), Math.max(200, Math.round(r.width)), Math.max(200, Math.round(r.height)));
         slot.querySelector('svg').style.opacity = 'calc(var(--art-opacity) * 3.2)';
+      } else if (figureArt(art.kind)) {
+        // drawn after fit, into the slide's largest empty space - see placeInSpace()
       } else {
         const place = art.place || 'bg';
         const dims = { bg: [W, H], corner: [700, 700], band: [W, Math.round(H * 0.42)], side: [Math.round(W * 0.58), Math.round(H * 0.76)] }[place] || [W, H];
@@ -112,8 +114,13 @@
     // ── quadrant labels: placed on final sizes, before anything measures them
     placeQuadLabels();
 
+    // ── figure art: into the empty space the final layout left ────────────
+    if (figureArt(art.kind) && art.kind !== 'none' && window.ART[art.kind] && !document.querySelector('[data-art-slot]')) {
+      verify.art_space = placeInSpace(art);
+    }
+
     // ── art knockout: needs the final text positions, so after fit ─────────
-    const artSvg = document.querySelector('#bg > svg');
+    const artSvg = document.querySelector('#bg > svg:not(.art-space)');
     if (artSvg && !fieldArt(art.kind)) verify.knockout = knockout(artSvg, art.seed || 1);
 
     window.__audit = audit(fitResult, layout);
@@ -380,12 +387,18 @@
     const MAX = statement ? 1.35 : HUGGABLE.includes(format) ? 1.4 : 1.25;
     const round = (v) => Math.round(v * 100) / 100;
     const ox = (el) => el.scrollWidth > el.clientWidth + 1;
-    for (const el of document.querySelectorAll('[data-fit="line"]')) {
-      let v = 1;
-      el.style.setProperty('--vfit', v);
-      while (ox(el) && v > MIN) { v = round(v - 0.04); el.style.setProperty('--vfit', v); }
-    }
-    const apply = (v) => canvas.style.setProperty('--fit', v);
+    // One-line elements (a stat's value, a column heading) shrink on their own
+    // at every step, down to their floor, instead of capping the whole slide:
+    // "Standard process" not fitting at 1.1x held a slide of body copy at 0.85.
+    const lineFit = () => {
+      for (const el of document.querySelectorAll('[data-fit="line"]')) {
+        const floor = Number(el.dataset.fitMin || MIN);
+        let v = 1;
+        el.style.setProperty('--vfit', v);
+        while (ox(el) && v > floor) { v = round(v - 0.04); el.style.setProperty('--vfit', v); }
+      }
+    };
+    const apply = (v) => { canvas.style.setProperty('--fit', v); lineFit(); };
     const tooBig = () => overflowProblems(main).length > 0 || [...main.querySelectorAll('[data-fit]')].some(ox);
     let f = 1;
     apply(f);
@@ -403,13 +416,14 @@
       while (tooBig() && f > MIN) { f = round(f - 0.03); apply(f); }
     } else {
       grow(STRETCH.includes(format));
-      // At the largest type the cards are still mostly air: stretching them
-      // only advertises it. Let them wrap their copy, then grow on height.
-      if (HUGGABLE.includes(format) && cardFill(main) < HUG_BELOW) {
-        hug = true;
-        main.classList.add('hug');
-        grow(false);
-      }
+    }
+    // Cards still mostly air at the final size - whether growth stopped or the
+    // copy had to shrink - only advertise it when stretched. They wrap their
+    // copy instead, and the type grows on height if there is room.
+    if (HUGGABLE.includes(format) && cardFill(main) < HUG_BELOW) {
+      hug = true;
+      main.classList.add('hug');
+      if (!tooBig()) grow(false);
     }
     // What stopped the growth: one step larger, what breaks? Recorded in the
     // audit so a slide that stays small can be tuned from evidence.
@@ -436,6 +450,18 @@
     for (const el of main.querySelectorAll('h1, h2, h3, p, li, .card, .stat-value, .take, .display, .mega, .bub, .opt, .node, .chip')) {
       const r = el.getBoundingClientRect();
       if (r.height > 0 && r.top < mr.top - 2) { out.push(`"${(el.textContent || '').trim().slice(0, 40)}" spills above its box`); break; }
+    }
+    // Text that may not wrap (column headings, labels) can run out of its box
+    // into the next column without moving anything else: "Typical process"
+    // ran into "WizCodes" and no scroll size of the page noticed.
+    for (const el of main.querySelectorAll('*')) {
+      if (el.closest('.diagram, .chart-slot, .shot, .scr, .art-slot, svg, .ticker, .quad, pre')) continue;
+      const st = getComputedStyle(el);
+      if (st.position === 'absolute' || st.display === 'inline' || el.clientWidth <= 0) continue;
+      if (el.scrollWidth > el.clientWidth + 2 && st.whiteSpace === 'nowrap' && !el.dataset.fit) {
+        out.push(`"${(el.textContent || '').trim().slice(0, 40)}" runs out of its box`);
+        break;
+      }
     }
     for (const el of main.querySelectorAll('*')) {
       if (el.closest('.diagram, .chart-slot, .shot, .scr, .art-slot, svg')) continue;
@@ -558,6 +584,57 @@
       pt.style.setProperty('--dy', `${best ? best.dy : 0}px`);
       taken.push(tx.getBoundingClientRect());
     }
+  }
+
+  // ═══════════════════ figure art in empty space ═══════════════════
+  // Solid shapes (Bauhaus tiles, UI cards, pixel blocks) are figures, not
+  // texture. Behind copy, the knockout carved them into ghosts; a designer
+  // would put them where the layout left room. So they are drawn last, into
+  // the largest rectangle the content does not touch - and not at all when
+  // the slide has no real room.
+  function figureArt(kind) { return kind === 'bauhaus' || kind === 'cards' || kind === 'pixels'; }
+
+  function placeInSpace(art) {
+    const cell = Math.max(12, Math.round(Math.min(W, H) / 45));
+    const cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+    const grid = Array.from({ length: rows }, () => new Uint8Array(cols));
+    const pad = Math.min(W, H) * 0.035;
+    for (const [x, y, w, h] of keepOuts()) {
+      const c0 = Math.max(0, Math.floor((x - pad) / cell)), c1 = Math.min(cols - 1, Math.floor((x + w + pad) / cell));
+      const r0 = Math.max(0, Math.floor((y - pad) / cell)), r1 = Math.min(rows - 1, Math.floor((y + h + pad) / cell));
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) grid[r][c] = 1;
+    }
+    // Largest empty rectangle: a histogram of free cells per column, swept
+    // row by row (the classic maximal-rectangle method).
+    const heights = new Array(cols).fill(0);
+    let best = { area: 0 };
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) heights[c] = grid[r][c] ? 0 : heights[c] + 1;
+      const stack = [];
+      for (let c = 0; c <= cols; c++) {
+        const hgt = c < cols ? heights[c] : 0;
+        let start = c;
+        while (stack.length && stack[stack.length - 1][1] >= hgt) {
+          const [s, sh] = stack.pop();
+          const area = sh * (c - s);
+          if (area > best.area) best = { area, c0: s, c1: c - 1, r0: r - sh + 1, r1: r };
+          start = s;
+        }
+        stack.push([start, hgt]);
+      }
+    }
+    if (!best.area) return 'no space';
+    const x = best.c0 * cell, y = best.r0 * cell;
+    const w = Math.min(W - x, (best.c1 - best.c0 + 1) * cell), h = Math.min(H - y, (best.r1 - best.r0 + 1) * cell);
+    if (w < W * 0.24 || h < H * 0.14 || w * h < W * H * 0.07) return `too little space (${Math.round(w)}x${Math.round(h)})`;
+    const holder = document.createElement('div');
+    holder.innerHTML = window.ART[art.kind](window.artRng(art.seed || 1), Math.round(w), Math.round(h));
+    const svgEl = holder.firstElementChild;
+    svgEl.classList.add('art-space');
+    svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svgEl.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    document.getElementById('bg').appendChild(svgEl);
+    return `${Math.round(w)}x${Math.round(h)} at ${Math.round(x)},${Math.round(y)}`;
   }
 
   // ═══════════════════ art knockout ═══════════════════

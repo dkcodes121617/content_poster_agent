@@ -145,6 +145,42 @@ def render(payloads: list[dict], out_dir: Path, prefix: str, *, strict: bool = T
     return written, audits
 
 
+# ── documents ─────────────────────────────────────────────────────────────────
+def to_pdf(pngs: list[Path], out: Path, size: tuple[int, int] = (1080, 1350)) -> Path:
+    """One page per rendered slide - the form LinkedIn takes a carousel in.
+
+    Built from the finished PNGs rather than by printing the slides' HTML:
+    print mode rasterises backdrop blur, masks and filters its own way, and a
+    document that differs from the images it was checked as is a document
+    nobody checked. Chromium embeds the PNGs losslessly.
+    """
+    from playwright.sync_api import sync_playwright
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    w, h = size
+    pages = "".join(f'<img src="{Path(p).resolve().as_uri()}">' for p in pngs)
+    doc = (f"<!doctype html><html><head><meta charset='utf-8'><style>@page {{ size: {w}px {h}px; margin: 0 }}"
+           f"html, body {{ margin: 0; padding: 0; background: #000 }}"
+           f"img {{ display: block; width: {w}px; height: {h}px; page-break-after: always; break-after: page }}"
+           f"img:last-child {{ page-break-after: auto; break-after: auto }}</style></head><body>{pages}</body></html>")
+    tmp = out.parent / f"._doc_{os.getpid()}.html"
+    tmp.write_text(doc, encoding="utf-8")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page(viewport={"width": w, "height": h})
+                page.goto(tmp.as_uri())
+                page.wait_for_function("[...document.images].every((i) => i.complete && i.naturalWidth > 0)", timeout=30000)
+                page.pdf(path=str(out), width=f"{w}px", height=f"{h}px", print_background=True,
+                         margin={"top": "0", "right": "0", "bottom": "0", "left": "0"})
+            finally:
+                browser.close()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return out
+
+
 # ── contrast, measured on pixels ──────────────────────────────────────────────
 _RGB = re.compile(r"rgba?\(([^)]+)\)")
 
