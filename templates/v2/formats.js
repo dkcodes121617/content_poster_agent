@@ -345,7 +345,7 @@
       layouts: ['editor'],
       build(c, x) {
         x.jobs.push({ engine: 'prism', language: c.language || 'python' });
-        return `${title(c.title, 'h2')}<div class="grow center"><div class="win"><div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i>` +
+        return `${title(c.title, 'h2')}<div class="grow center"><div class="win"><div class="bar"><i></i><i></i><i></i>` +
           `<span class="fn">${plain(c.filename || 'example')}</span></div><pre data-code class="language-${esc(c.language || 'python')}">${esc(c.code)}</pre></div></div>` +
           (has(c.caption) ? `<p class="body">${plain(c.caption)}</p>` : '');
       },
@@ -356,7 +356,7 @@
       build(c, x) {
         const lines = arr(c.lines).map((l) => (l.cmd ? `<div class="term-line"><span class="p">$</span> ${esc(l.cmd)}</div>` : '') +
           (l.out ? `<div class="term-out">${esc(l.out)}</div>` : '')).join('');
-        return `${title(c.title, 'h2')}<div class="grow center"><div class="win"><div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i>` +
+        return `${title(c.title, 'h2')}<div class="grow center"><div class="win"><div class="bar"><i></i><i></i><i></i>` +
           `<span class="fn">${plain(c.filename || 'zsh')}</span></div><pre>${lines}</pre></div></div>`;
       },
     },
@@ -381,7 +381,7 @@
           return `<div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:4cqmin;align-items:center;flex:1;min-height:0">` +
             `<div class="grow center gap-m">${title(c.title, 'h2')}${cap}</div><div class="mock-phone"><div class="notch"></div><div class="scr">${screen}</div></div></div>`;
         }
-        return `${title(c.title, 'h2')}<div class="mock-browser"><div class="bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i>` +
+        return `${title(c.title, 'h2')}<div class="mock-browser"><div class="bar"><i></i><i></i><i></i>` +
           `<span class="url">${plain(c.url || 'wizcodes.site/work')}</span></div><div class="shot">${art}</div></div>${cap}`;
       },
     },

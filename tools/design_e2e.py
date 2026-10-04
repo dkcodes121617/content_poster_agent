@@ -64,6 +64,7 @@ def generate(config, cases, out_dir: Path, salt: str = "") -> tuple[list[dict], 
     client = LLMClient(model=config.voice_model)
     today = today_ist(config.display_tz)
     has_stats = bool(snapshot.chartable_stats())
+    figures = [f"{st['value']} {st['label']}" for st in snapshot.chartable_stats()]
     ledger: dict[str, list[dict]] = {}
 
     report: list[dict] = []
@@ -72,7 +73,7 @@ def generate(config, cases, out_dir: Path, salt: str = "") -> tuple[list[dict], 
         plan = select.plan(platform=platform, pillar=pillar, slides=slides, history=ledger.get(platform, []),
                            today=today, slot_key=f"e2e{salt}-{n}", has_stats=has_stats, has_project=bool(snapshot.projects))
         print(f"[{n}/{len(cases)}] {platform}/{pillar}: {plan.brief()}", flush=True)
-        user = prompt.user(plan, platform=platform, pillar=pillar)
+        user = prompt.user(plan, platform=platform, pillar=pillar, figures=figures)
 
         def check(draft, _platform=platform, _pillar=pillar, _count=len(plan.slides)):
             return gates.check(draft, platform_name=_platform, snapshot=snapshot, sources=[], pillar=_pillar,
@@ -83,7 +84,7 @@ def generate(config, cases, out_dir: Path, salt: str = "") -> tuple[list[dict], 
             print(f"    call {a['call']} ({a['mode']}): {len(a['problems'])} problem(s) in {a['seconds']}s{first}", flush=True)
 
         draft, problems, attempts = prompt.write(client, system=system, user=user, plan=plan, snapshot=snapshot,
-                                                 gates=check, on_attempt=show)
+                                                 gates=check, on_attempt=show, figures=figures)
         ok = draft is not None and not problems
         report.append({"case": n, "platform": platform, "pillar": pillar, "plan": plan.to_record(),
                        "ok": ok, "attempts": attempts, "problems": problems, "draft": draft})

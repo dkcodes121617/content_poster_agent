@@ -24,7 +24,9 @@
     canvas.style.setProperty('--w', W + 'px');
     canvas.style.setProperty('--h', H + 'px');
     canvas.dataset.look = D.look || 'midnight';
-    canvas.dataset.accent = D.accent || 'blue';
+    // The site's three colours only; a plan from before the brand-only palette
+    // (green, amber) gets the brand blue rather than an undefined accent.
+    canvas.dataset.accent = ['blue', 'teal', 'purple'].includes(D.accent) ? D.accent : 'blue';
     canvas.dataset.format = D.format || 'hook';
     canvas.dataset.layout = D.layout || '';
 
@@ -93,7 +95,7 @@
     await document.fonts.ready;
 
     // ── engines ─────────────────────────────────────────────────────────────
-    const css = (name) => getComputedStyle(canvas).getPropertyValue(name).trim();
+    const css = (name) => plainColor(getComputedStyle(canvas).getPropertyValue(name).trim());
     for (const job of x.jobs) {
       try {
         if (job.engine === 'vega') await renderChart(job, css, verify, errors);
@@ -125,13 +127,49 @@
 
     // ── art knockout: needs the final text positions, so after fit ─────────
     const artSvg = document.querySelector('#bg > svg:not(.art-space)');
-    if (artSvg && !fieldArt(art.kind)) verify.knockout = knockout(artSvg, art.seed || 1);
+    // Soft colour fields stay whole behind the copy but still clear the
+    // footer: the wordmark is the one thing on every slide that must read.
+    if (artSvg) verify.knockout = knockout(artSvg, art.seed || 1, fieldArt(art.kind) ? '#foot' : null);
 
     window.__audit = audit(fitResult, layout);
   } catch (e) {
     window.__audit = { errors: [`runtime error: ${String(e && e.message || e).slice(0, 200)}`, ...errors], warnings, boxes: [] };
   }
   window.__ready = true;
+
+  // ═══════════════════ colours for the engines ═══════════════════
+  // The looks are written in the site's tokens and mixes of them, e.g.
+  // color-mix(in srgb, var(--blue-strong) 80%, var(--surface-navy)). Mermaid
+  // and Vega parse colours themselves and know neither, so the browser
+  // resolves each value and it is handed over as #rrggbb, or rgba() when it
+  // is translucent. (The probe lives on the function: a module-level let
+  // would still be in its temporal dead zone when the main block runs.)
+  function plainColor(value) {
+    if (!value) return value;
+    if (!plainColor.probe) {
+      plainColor.probe = document.createElement('i');
+      plainColor.probe.style.display = 'none';
+      document.body.appendChild(plainColor.probe);
+    }
+    const probe = plainColor.probe;
+    probe.style.color = '';
+    probe.style.color = value;
+    if (!probe.style.color) return value;            // not something the browser reads as a colour
+    return toRGB(getComputedStyle(probe).color) || value;
+  }
+
+  function toRGB(c) {
+    const out = (r, g, b, a) => (a < 1 ? `rgba(${r}, ${g}, ${b}, ${Math.round(a * 1000) / 1000})`
+      : '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join(''));
+    let m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/.exec(c);
+    if (m) return out(Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3]), m[4] === undefined ? 1 : +m[4]);
+    m = /^color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*\/\s*([\d.e]+))?\s*\)$/.exec(c);
+    if (m) {
+      const ch = (v) => Math.round(Math.max(0, Math.min(1, +v)) * 255);
+      return out(ch(m[1]), ch(m[2]), ch(m[3]), m[4] === undefined ? 1 : +m[4]);
+    }
+    return null;
+  }
 
   // ═══════════════════ engines ═══════════════════
   async function renderChart(jobIn, css, verify, errors) {
@@ -677,7 +715,7 @@
   // Soft colour fields, not figures: nothing to clear. (A function, not a
   // const: the main block above runs before a const down here exists.)
   function fieldArt(kind) { return kind === 'blobs'; }
-  function knockout(svgEl, seed) {
+  function knockout(svgEl, seed, scope = null) {
     const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
     if (!vb || !vb.width || !vb.height) return 0;
     const cb = canvas.getBoundingClientRect();
@@ -687,7 +725,7 @@
     const ox = r.left - cb.left + (r.width - vb.width * s) / 2;
     const oy = r.top - cb.top + (r.height - vb.height * s) / 2;
     let holes = '', n = 0;
-    for (const [x, y, w, h] of keepOuts()) {
+    for (const [x, y, w, h] of keepOuts(scope)) {
       const ax = (x - ox) / s + vb.x, ay = (y - oy) / s + vb.y, aw = w / s, ah = h / s;
       if (ax > vb.x + vb.width || ay > vb.y + vb.height || ax + aw < vb.x || ay + ah < vb.y) continue;
       holes += `<rect x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${aw.toFixed(1)}" height="${ah.toFixed(1)}" rx="${(Math.min(aw, ah) * 0.3).toFixed(1)}"/>`;
@@ -714,7 +752,7 @@
   // Canvas rectangles the art must stay out of: each line of text (padded by
   // a share of its own size), each painted element, each figure. Content in
   // a frosted panel is skipped - the frost already separates it from the art.
-  function keepOuts() {
+  function keepOuts(scope = null) {
     const cb = canvas.getBoundingClientRect();
     const frame = canvas.querySelector('.frame');
     const unit = Math.min(W, H) / 100;
@@ -723,10 +761,11 @@
       if (r.width < 1 || r.height < 1) return;
       out.push([r.left - cb.left - pad, r.top - cb.top - pad, r.width + pad * 2, r.height + pad * 2]);
     };
-    const all = [...frame.querySelectorAll('*')];
+    const root = scope ? canvas.querySelector(scope) || frame : frame;
+    const all = [...root.querySelectorAll('*')];
     const frosted = all.filter((el) => { const b = getComputedStyle(el).backdropFilter; return b && b !== 'none'; });
     const inFrost = (el) => frosted.some((f) => f.contains(el));
-    const walker = document.createTreeWalker(frame, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     for (let t = walker.nextNode(); t; t = walker.nextNode()) {
       if (!t.textContent.trim()) continue;
@@ -778,8 +817,8 @@
     svgEl.style.left = '0'; svgEl.style.top = '0';
     fx.appendChild(svgEl);
     const rc = window.rough.svg(svgEl);
-    const stroke = getComputedStyle(canvas).getPropertyValue('--fg').trim() || '#1B2433';
-    const accent = getComputedStyle(canvas).getPropertyValue('--acc').trim() || '#1E7AAB';
+    const stroke = plainColor(getComputedStyle(canvas).getPropertyValue('--fg').trim()) || '#15233A';
+    const accent = plainColor(getComputedStyle(canvas).getPropertyValue('--acc').trim()) || '#1E7AAB';
     let k = 0;
     for (const el of document.querySelectorAll('#main .card, #main .flag-col, #main .opt, #main .win, #main .mf-split > div, #main .tier, #main .mock-browser')) {
       const r = el.getBoundingClientRect();

@@ -237,8 +237,22 @@ def system(facts_block: str, stats_block: str = "") -> str:
     return post_system_prompt(facts_block, stats_block) + "\n\n" + DESIGN_RULES
 
 
+NUMBER_FORMATS = frozenset({"stat", "chart"})
+
+
+def figures_note(figures: list[str]) -> str:
+    """The verified figures, spelled out where the numbers are written. With
+    four curated figures and a deck asking for more, the writer invented
+    replacements ("1,000+", "100%", "30 seconds") one repair after another."""
+    listed = "\n".join(f"  - {f}" for f in figures)
+    return ("FIGURES YOU MAY USE - the only verified numbers about WizCodes, each meaning exactly what it says:\n"
+            f"{listed}\n"
+            "A performance figure (a response time, an accuracy) only exactly as the facts state it for a named "
+            "project. A slide that wants a number none of these supplies makes its point without one.")
+
+
 def user(plan: DesignPlan, *, platform: str, pillar: str, extra: str = "",
-         region_brief: str = "", phrase_brief: str = "") -> str:
+         region_brief: str = "", phrase_brief: str = "", figures: list[str] | None = None) -> str:
     lines = [
         f"Write one {platform} post.",
         "",
@@ -255,7 +269,10 @@ def user(plan: DesignPlan, *, platform: str, pillar: str, extra: str = "",
         lines += ["", extra]
     if plan.slides and plan.slides[0].format == "hook":
         lines += ["", HOOK_RULES]
-    lines += ["", deck_spec(plan), "", DIVISION_OF_LABOUR, "",
+    lines += ["", deck_spec(plan)]
+    if figures and any(s.format in NUMBER_FORMATS for s in plan.slides):
+        lines += ["", figures_note(figures)]
+    lines += ["", DIVISION_OF_LABOUR, "",
               "`title` is a plain title for the post under 100 characters (LinkedIn shows it on the document).",
               "Return the JSON object on its own, with nothing before or after it."]
     return "\n".join(x for x in lines if x is not None)
@@ -283,7 +300,7 @@ Leave out every slide that was not rejected."""
 _OVER = re.compile(r"'([^']+)' is (\d+) characters - max (\d+)")
 
 
-def _actionable(problem: str) -> str:
+def _actionable(problem: str, figures: list[str] | None = None) -> str:
     m = _OVER.search(problem)
     if m:
         return _OVER.sub(f"'{m.group(1)}' is {m.group(2)} characters - rewrite it shorter, in at most "
@@ -291,16 +308,21 @@ def _actionable(problem: str) -> str:
     if "sentence lengths are too uniform" in problem:
         return ("caption: [voice] every sentence is about the same length, which reads as machine-written - rewrite "
                 "the caption with one sentence of three to five words and one of twenty words or more")
+    if "[grounding] figure" in problem and figures:
+        # Without this the fix for one invented number was another one.
+        return problem + " - replace it with one of these exact figures (" + "; ".join(figures) + \
+            "), or make the point without a number"
     return problem
 
 
-def repair(user_prompt: str, draft: dict, problems: list[str], repeated: set[str] | None = None) -> str:
+def repair(user_prompt: str, draft: dict, problems: list[str], repeated: set[str] | None = None,
+           figures: list[str] | None = None) -> str:
     compact = {"caption": draft.get("caption", ""), "hashtags": draft.get("hashtags", []),
                "slides": [{"index": i, "format": s["format"], "content": s["content"]}
                           for i, s in enumerate(draft.get("slides") or [], 1)]}
     lines = []
     for p in problems[:16]:
-        note = _actionable(p)
+        note = _actionable(p, figures)
         if repeated and p in repeated:
             note += " (flagged again after the last fix - write this part completely differently)"
         lines.append(f"- {note}")
@@ -524,8 +546,10 @@ def grounded(slides: list[dict], snapshot, caption: str = "", pillar: str = "") 
         if s["format"] == "stat" and value in facts:
             extra = _words(c.get("label", "")) - _words(facts[value]) - _LABEL_OK
             if extra:
-                problems.append(f"slide {i}: the label adds '{' '.join(sorted(extra))}' to {value} - the facts count "
-                                f"'{facts[value]}'; say that, in those words or fewer")
+                # An instruction, not a description: "say that, in those words
+                # or fewer" came back with a different qualifier four times.
+                problems.append(f"slide {i}: set the label of {value} to exactly '{facts[value]}' - the facts do not "
+                                f"say '{' '.join(sorted(extra))}', so put that idea in 'context' without the number")
         if s["format"] == "chart" and pillar != "timely":
             # Only the curated figures: "1, 2, 3" also occur somewhere in the
             # facts, and a chart of 1-2-3-4 "scores" is a chart of nothing.
@@ -564,7 +588,7 @@ _SLIDE = re.compile(r"^slide (\d+)\b")
 
 def write(client, *, system: str, user: str, plan: DesignPlan, snapshot=None, gates=None,
           max_calls: int = 4, max_tokens: int = 8000, temperature: float = 0.75,
-          on_attempt=None) -> tuple[dict | None, list[str], list[dict]]:
+          on_attempt=None, figures: list[str] | None = None) -> tuple[dict | None, list[str], list[dict]]:
     """Draft a deck, check it, and repair what fails.
 
     `gates(draft) -> problems` runs the prose gates (grounding, claims, voice,
@@ -599,7 +623,7 @@ def write(client, *, system: str, user: str, plan: DesignPlan, snapshot=None, ga
         targeted = draft is not None and all(_SLIDE.match(p) or p.startswith("caption") for p in problems)
         if targeted:
             seen = {p for a in attempts[:-1] for p in a["problems"]}
-            prompt_text, mode = repair(user, draft, problems, repeated=seen & set(problems)), "repair"
+            prompt_text, mode = repair(user, draft, problems, repeated=seen & set(problems), figures=figures), "repair"
         else:
             draft, mode = None, "draft"
             prompt_text = user + "\n\n" + REGENERATE_NOTE.format(reasons="\n".join(f"- {p}" for p in problems[:12]))

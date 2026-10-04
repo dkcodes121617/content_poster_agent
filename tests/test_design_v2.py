@@ -333,7 +333,7 @@ def test_a_figure_of_ours_cannot_carry_an_invented_claim():
     snap, plan = _StatSnapshot(), _plan(("hook", "stat", "recap", "cta"))
     bad_label = {"value": "26", "label": "projects delivered with fixed-scope quotes", "source": "wizcodes.site"}
     _, p = prompt.parse(_raw(plan, {1: bad_label}), plan, snap)
-    assert any("adds" in x and "fixed" in x for x in p), p
+    assert any("set the label of 26 to exactly 'projects delivered'" in x and "fixed" in x for x in p), p
     ok = {"value": "26", "label": "projects delivered", "source": "wizcodes.site"}
     recap = dict(GOOD["recap"], note="26 projects delivered this way")
     _, p = prompt.parse(_raw(plan, {1: ok, 2: recap}), plan, snap)

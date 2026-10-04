@@ -183,7 +183,7 @@
 
     streaks(rng, W, H) {
       const id = 'st' + Math.floor(rng() * 1e6);
-      const defs = `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.7" style="stop-color:${C.glow}" stop-opacity="0.9"/><stop offset="1" stop-color="#fff" stop-opacity="1"/></linearGradient>` +
+      const defs = `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--surface)" stop-opacity="0"/><stop offset="0.7" style="stop-color:${C.glow}" stop-opacity="0.9"/><stop offset="1" style="stop-color:var(--surface)" stop-opacity="1"/></linearGradient>` +
         `<filter id="${id}g" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>`;
       let b = '';
       const n = 22 + Math.floor(rng() * 16), ang = rnd(rng, -24, -12);

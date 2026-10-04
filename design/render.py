@@ -183,9 +183,18 @@ def to_pdf(pngs: list[Path], out: Path, size: tuple[int, int] = (1080, 1350)) ->
 
 # ── contrast, measured on pixels ──────────────────────────────────────────────
 _RGB = re.compile(r"rgba?\(([^)]+)\)")
+# Text coloured with a token mix (color-mix(in srgb, ...)) computes to
+# color(srgb r g b / a) in Chromium, channels 0-1. Unparsed, those boxes were
+# silently skipped by the contrast check.
+_SRGB = re.compile(r"color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*/\s*([\d.e]+)(%?))?\s*\)")
 
 
 def _parse(color: str):
+    s = _SRGB.search(color or "")
+    if s:
+        r, g, b = (max(0.0, min(1.0, float(s.group(i)))) * 255 for i in (1, 2, 3))
+        a = 1.0 if s.group(4) is None else float(s.group(4)) / (100 if s.group(5) else 1)
+        return (r, g, b, a)
     m = _RGB.search(color or "")
     if not m:
         return None

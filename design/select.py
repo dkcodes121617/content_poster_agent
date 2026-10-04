@@ -49,7 +49,6 @@ from datetime import date
 
 from campaign.calendar import today_ist
 from design.registry import (
-    ACCENTS,
     FORMATS,
     LOOKS,
     PLATFORM_CANVAS,
@@ -260,7 +259,7 @@ def plan(
         recipe_name, goal, feels = chosen_recipe.name, chosen_recipe.goal, chosen_recipe.feels_like
 
     look = _pick_look(pillar, platform, formats, designs, rng, perf)
-    accent = _pick_accent(service_line, designs, rng)
+    accent = _pick_accent(service_line)
     art = _pick_art(look, designs, rng)
     seed = int(hashlib.sha1(f"{day}:{platform}:{slot_key}:{look}".encode()).hexdigest()[:8], 16) % 900_000 + 1000
     plan_slides = _layouts_and_places(formats, look, art, designs, rng, chosen_recipe)
@@ -347,6 +346,7 @@ _NOT_FILLER = frozenset({"hook", "cta", "recap", "poll", "post_card"})
 # repeated (three myths, two numbers); everything else is a set piece, and a
 # second iceberg in one deck is filler. Only a true series may sit back to back.
 REPEAT_LIMIT = {"myth_fact": 3, "stat": 2, "quote": 2, "hot_take": 2, "checklist": 2}
+NUMBER_SLIDES = frozenset({"stat", "chart"})
 SERIES = frozenset({"myth_fact"})
 
 
@@ -390,6 +390,10 @@ def _deck_formats(recipe: Recipe, count: int, canvas: str, designs: list[dict], 
     pool = [f for f in recipe.stretch if ok_fmt(f)] + [f for f in generic if f not in recipe.stretch]
     def fits(f: str) -> bool:
         if used.count(f) >= REPEAT_LIMIT.get(f, 1):
+            return False
+        # The facts hold a handful of figures; a third number slide sends the
+        # writer looking for numbers that do not exist, and it invents them.
+        if f in NUMBER_SLIDES and sum(x in NUMBER_SLIDES for x in used) >= 2:
             return False
         # never the same format twice running, unless it is a series
         return not body or body[-1] != f or f in SERIES
@@ -454,12 +458,11 @@ def _pick_look(pillar, platform, formats, designs, rng, perf) -> str:
     return _weighted(rng, pool, weights)
 
 
-def _pick_accent(service_line: str, designs: list[dict], rng) -> str:
-    if service_line in SERVICE_ACCENT:
-        return SERVICE_ACCENT[service_line]
-    recent = [d.get("accent", "") for d in designs[:2]]
-    pool = [a for a in ACCENTS if a not in recent] or list(ACCENTS)
-    return rng.choice(pool)
+def _pick_accent(service_line: str) -> str:
+    """The website's colours, as the website uses them: brand blue, or the
+    service's category colour when the post is about that service. Variety
+    comes from looks, formats, layouts and art - never from new hues."""
+    return SERVICE_ACCENT.get(service_line, "blue")
 
 
 def _pick_art(look_id: str, designs: list[dict], rng) -> str:

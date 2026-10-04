@@ -47,8 +47,22 @@ def _choice(fmt: str, layout: str, look: str, n: int) -> Choice:
     return Choice(format=fmt, layout=layout, look=look, accent=ACCENTS[n % len(ACCENTS)], art=art, place=place, seed=1000 + n * 37)
 
 
+def _fit_counts(fmt: str, content: dict, canvas: str) -> dict:
+    """Trim list fields to what this canvas may hold - the validator's caps,
+    so a lab render shows what production would actually be allowed to draw."""
+    from design.registry import count_cap
+
+    out = dict(content)
+    for name, spec in FORMATS[fmt].fields.items():
+        if spec.kind == "list" and isinstance(out.get(name), list) and spec.max:
+            out[name] = out[name][:count_cap(spec.max, spec.min, canvas)]
+    return out
+
+
 def _payload(fmt: str, layout: str, look: str, n: int, content: dict | None = None, canvas="portrait") -> tuple[str, dict]:
     choice = _choice(fmt, layout, look, n)
+    if content is None and canvas != "portrait":
+        content = _fit_counts(fmt, GOOD[fmt], canvas)
     slide = {"index": 1 if fmt == "hook" else (7 if fmt in ("cta", "recap") else 3), "count": 7} if fmt in CAROUSEL_ONLY else None
     payload = build_payload(choice, content if content is not None else GOOD[fmt], canvas=canvas, slide=slide,
                             svg=_svg_for(fmt, layout))

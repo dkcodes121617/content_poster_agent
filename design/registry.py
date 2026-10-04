@@ -214,7 +214,9 @@ LOOKS: dict[str, Look] = {k.id: k for k in [
     Look("noir", "dark", ("premium", "editorial", "calm"), ("topo", "flow", "arcs"), places=("band", "corner")),
 ]}
 
-ACCENTS = ("blue", "teal", "purple", "green", "amber")
+# The site's colours only: brand blue, and its Mobile (teal) and AI (purple)
+# category colours. templates/v2/design.css derives each from tokens.json.
+ACCENTS = ("blue", "teal", "purple")
 # The accent follows the subject where there is one — the site's own category
 # colours — and rotates where there is not.
 SERVICE_ACCENT = {"Web Development": "blue", "Mobile Apps": "teal", "AI Automation": "purple"}
