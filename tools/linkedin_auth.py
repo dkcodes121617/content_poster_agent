@@ -10,8 +10,9 @@ LinkedIn's "Increasing Access" page (li-lms-2026-09):
 
   * `w_organization_social` / `r_organization_social` / `rw_organization_admin`
     - post as the WizCodes company page, read its posts and page analytics
-  * `w_member_social` - post as YOU, on your personal profile
-  * `r_member_postAnalytics` - impressions/reactions for your personal posts
+
+It also offers personal-profile posting (`w_member_social`); this agent does not
+request it - WizCodes posts as the company page only.
 
 Development-tier limits: 500 API calls per app and 100 per member per 24 h, no
 BATCH_GET endpoints, no webhooks, and the integration must be finished within
@@ -47,10 +48,10 @@ import requests
 
 AGENT_ROOT = Path(__file__).resolve().parent.parent
 REDIRECT_URI = "http://localhost:8086/callback"
+# Company page only - the owner's decision (4 Oct): the agent posts as WizCodes,
+# never as a person, so no member-level scope is requested. These three cover
+# posting as the page, reading its posts back, and its analytics/admin lookup.
 SCOPES = " ".join([
-    "r_basicprofile",
-    "w_member_social",
-    "r_member_postAnalytics",
     "w_organization_social",
     "r_organization_social",
     "rw_organization_admin",
@@ -119,14 +120,6 @@ def _headers(token: str) -> dict[str, str]:
         "LinkedIn-Version": _VERSION,
         "X-Restli-Protocol-Version": "2.0.0",
     }
-
-
-def _member_id(token: str) -> str:
-    resp = requests.get(f"{_API}/v2/me", headers=_headers(token), timeout=30)
-    if resp.status_code != 200:
-        print(f"  could not read your member id: HTTP {resp.status_code} {resp.text[:200]}")
-        return ""
-    return str(resp.json().get("id") or "")
 
 
 def _admin_orgs(token: str) -> list[str]:
@@ -216,7 +209,6 @@ def main() -> int:
         print("  refresh token  : not issued to this app - re-run this tool within 60 days")
     print(f"  scopes granted : {payload.get('scope', '')}")
 
-    person = _member_id(access)
     orgs = _admin_orgs(access)
     org = ""
     if len(orgs) == 1:
@@ -226,16 +218,14 @@ def main() -> int:
         org = _ask("Which organization id is WizCodes? ")
     else:
         print("\nNo page found where you are ADMINISTRATOR - posting as the page will "
-              "fail until you are. Personal-profile posting still works.")
+              "fail until you are made one.")
 
-    print(f"\n  member id      : {person or '(unknown)'}")
-    print(f"  organization   : {org or '(none)'}")
+    print(f"\n  organization   : {org or '(none)'}")
     _save([
         ("LINKEDIN_CLIENT_ID", client_id),
         ("LINKEDIN_CLIENT_SECRET", client_secret),
         ("LINKEDIN_ACCESS_TOKEN", access),
         ("LINKEDIN_REFRESH_TOKEN", refresh),
-        ("LINKEDIN_PERSON_ID", person),
         ("LINKEDIN_ORG_ID", org),
     ])
     print("\nSaved. Verify with:  python tools/linkedin_auth.py --check")
@@ -247,10 +237,9 @@ def check() -> int:
     if not token:
         print("LINKEDIN_ACCESS_TOKEN is not set - run: python tools/linkedin_auth.py")
         return 2
-    person = _member_id(token)
     orgs = _admin_orgs(token)
-    print(f"member id: {person or 'FAILED'}   pages you administer: {orgs or 'none'}")
-    return 0 if person else 1
+    print(f"pages you administer: {orgs or 'none'}")
+    return 0 if orgs else 1
 
 
 if __name__ == "__main__":
