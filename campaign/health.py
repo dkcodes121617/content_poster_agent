@@ -80,7 +80,55 @@ def check(config, snapshot=None, now: datetime | None = None) -> list[str]:
         lines.append("Health check could not read the database - status unknown.")
     if snapshot is not None:
         lines += _blog_from_snapshot(snapshot, today)
+    lines += _site_deploy(config)
     return lines
+
+
+def _site_deploy(config) -> list[str]:
+    """A failing site deploy, which no other check can see.
+
+    Measured 24 Nov: eighteen deploys in a row failed from 14 Oct, so twenty blog
+    posts and a case study were committed and syndicated but never live. Every
+    agent reported success, because each one's own step did succeed - and the
+    blog line above reads the site REPO, which had the posts. Only the deploy
+    run knows whether they reached the site.
+    """
+    import json
+    import urllib.request
+
+    token = getattr(config, "site_read_token", "")
+    repo = getattr(config, "site_repo", "")
+    if not (token and repo):
+        return []
+    url = f"https://api.github.com/repos/{repo}/actions/runs?branch=main&per_page=20"
+    try:
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "wizcodes-health",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            runs = json.load(resp).get("workflow_runs") or []
+    except Exception:
+        log.warning("could not read the site's deploy runs", exc_info=True)
+        return []
+    return _deploy_line(runs)
+
+
+def _deploy_line(runs: list[dict]) -> list[str]:
+    deploys = [r for r in runs
+               if "deploy" in (r.get("name") or "").lower() and r.get("status") == "completed"]
+    failed = 0
+    for run in deploys:
+        if run.get("conclusion") != "failure":
+            break
+        failed += 1
+    if not failed:
+        return []
+    since = (deploys[failed - 1].get("created_at") or "")[:10]
+    more = "+" if failed == len(deploys) else ""
+    return [(f"🌐 website deploy failing: {failed}{more} in a row since {since} - "
+             "new posts are committed but NOT live. Check the site repo's Actions log.")]
 
 
 def _runs(cur, now: datetime | None) -> list[str]:
