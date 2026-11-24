@@ -33,7 +33,8 @@ class LinkedInPlatform(Platform):
 
     def publish(self, draft: Draft) -> PublishResult:
         cfg = self.config
-        if not (cfg.linkedin_token and cfg.linkedin_org_id):
+        token = cfg.live_linkedin_token
+        if not (token and cfg.linkedin_org_id):
             return PublishResult.skip(
                 self.name,
                 "LinkedIn credentials are unset - Community Management API is still "
@@ -42,7 +43,7 @@ class LinkedInPlatform(Platform):
 
         author = f"urn:li:organization:{cfg.linkedin_org_id}"
         headers = {
-            "Authorization": f"Bearer {cfg.linkedin_token}",
+            "Authorization": f"Bearer {token}",
             "LinkedIn-Version": _VERSION,
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type": "application/json",

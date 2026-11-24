@@ -58,6 +58,8 @@ _TOKEN_ATTRS = {
     "THREADS_ACCESS_TOKEN": "threads_token",
     "PINTEREST_TOKEN": "pinterest_token",
     "PINTEREST_REFRESH_TOKEN": "pinterest_refresh_token",
+    "LINKEDIN_ACCESS_TOKEN": "linkedin_token",
+    "LINKEDIN_REFRESH_TOKEN": "linkedin_refresh_token",
 }
 
 # Platforms that need an image URL Meta can FETCH. Meta's publish API does not
@@ -125,6 +127,9 @@ class Config:
     pinterest_refresh_token: str = env_str("PINTEREST_REFRESH_TOKEN")
     devto_api_key: str = env_str("DEVTO_API_KEY")
     linkedin_token: str = env_str("LINKEDIN_ACCESS_TOKEN")
+    linkedin_refresh_token: str = env_str("LINKEDIN_REFRESH_TOKEN")
+    linkedin_client_id: str = env_str("LINKEDIN_CLIENT_ID")
+    linkedin_client_secret: str = env_str("LINKEDIN_CLIENT_SECRET")
     linkedin_org_id: str = env_str("LINKEDIN_ORG_ID")
 
     # ── R2 (Meta fetches images by URL; it never accepts an upload) ──
@@ -179,8 +184,27 @@ class Config:
     # default: on platforms where the first line is not a URL this is a
     # preference, and a preference should not cost a slot.
     seo_phrase_required: list[str] = field(
-        default_factory=lambda: env_list("SEO_PHRASE_REQUIRED", "linkedin,devto")
+        default_factory=lambda: env_list("SEO_PHRASE_REQUIRED", "devto")
     )
+    # Where a search phrase is offered to the writer at all. Measured 24 Nov
+    # across 235 published posts: on Threads, Instagram and LinkedIn the phrase
+    # produced openers like "If you're hunting for an alternative to expensive
+    # software agencies..." - search-page copy that reads as spam in a feed and
+    # earned 2 Threads followers in 112 posts. Pinterest and dev.to are search
+    # engines, and a LinkedIn post's public URL is built from its first words, so
+    # the phrase earns its place on those three. On LinkedIn it is safe again only
+    # because the editor (below) now rejects search-page openers.
+    seo_phrase_platforms: list[str] = field(
+        default_factory=lambda: env_list("SEO_PHRASE_PLATFORMS", "linkedin,pinterest,devto")
+    )
+
+    # ── editorial gate (validators/editor.py) ──
+    # The validators catch rule breaks; nothing caught a dull post. A second
+    # model reads every passing draft as the target reader would and sends back
+    # anything that would not stop the scroll or earn a save.
+    editor_enabled: bool = env_bool("EDITOR_ENABLED", True)
+    editor_model: str = env_str("EDITOR_MODEL", "claude-opus-5-5")
+    editor_min_score: int = env_int("EDITOR_MIN_SCORE", 7)
 
     # ── geography (§4) ──
     geo_targeting: bool = env_bool("GEO_TARGETING", True)
@@ -198,6 +222,11 @@ class Config:
 
     # ── trend intelligence (TRENDS.md) ──
     trends_enabled: bool = env_bool("TRENDS_ENABLED", True)
+    # Off-calendar news inserts per platform per rolling 7 days. Was one a DAY:
+    # 51 of 112 Threads posts and 17 of 23 LinkedIn posts ended up as news
+    # reactions (one built on a Jezebel story about licence-plate cameras) -
+    # the "timepass" content that taught the audience to scroll past.
+    timely_max_per_week: int = env_int("TIMELY_MAX_PER_WEEK", 1)
     tavily_api_key: str = env_str("TAVILY_API_KEY")
     # Same model the Lead Finder triages with. Named identically on purpose:
     # both agents share one Groq account and one free-tier pool, so budgeting
@@ -303,6 +332,10 @@ class Config:
     @property
     def live_threads_token(self) -> str:
         return self.token("THREADS_ACCESS_TOKEN")
+
+    @property
+    def live_linkedin_token(self) -> str:
+        return self.token("LINKEDIN_ACCESS_TOKEN")
 
     @property
     def live_pinterest_token(self) -> str:

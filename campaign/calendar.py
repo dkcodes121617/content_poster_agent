@@ -111,7 +111,9 @@ WEEK: list[Slot] = [
     # Wednesday
     Slot(2, 12, 30, "instagram", "process", "carousel", 6),    # EU
     Slot(2, 16, 0, "threads", "teach", "text"),                # UK
-    Slot(2, 18, 30, "linkedin", "proof", "carousel", 8),       # US
+    # Text, not a carousel: platforms/linkedin.py posts commentary only, so a
+    # caption written to tease slides would have gone out with no slides.
+    Slot(2, 18, 30, "linkedin", "proof", "text"),              # US
     Slot(2, 21, 0, "threads", "process", "text"),              # US
     # Thursday
     Slot(3, 15, 0, "pinterest", "teach", "pin"),               # UK/EU

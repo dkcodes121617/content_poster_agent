@@ -96,27 +96,37 @@ below, and — on a timely post only — figures from the verified sources suppl
 with it."""
 
 PILLAR_BRIEFS = {
-    "proof": "Tell one real project as a story: the constraint the client had, "
-             "what was built, and the measurable outcome. Name the project.",
-    "teach": "Explain something a buyer can act on - what software actually "
-             "costs, how to brief a developer, how to tell a good quote from a "
-             "bad one. Useful enough to save.",
-    "pov": "State a defensible opinion a buyer could argue with. It should cost "
-           "something to say - an opinion nobody could disagree with is filler.",
+    "proof": "Tell one real project as a story with stakes: what the client was "
+             "up against, the hard call or wrong turn on the way, what shipped "
+             "and the measurable result. Name the project. The reader should "
+             "leave with something they could apply to their own build, not "
+             "just admiration for ours.",
+    "teach": "Give the reader something they can use this week: the mistake most "
+             "teams make on a real build problem and the better way, or how to "
+             "judge a quote, a brief or an architecture choice. The blog posts "
+             "listed in the facts are deep material for this - distil the single "
+             "sharpest insight of one of them in your own words. Useful enough "
+             "to save.",
+    "pov": "State a defensible opinion a founder could argue with, and back it "
+           "with one concrete reason from real builds. It should cost something "
+           "to say - an opinion nobody could disagree with is filler.",
     # Step by step, never week by week: a week number is a delivery schedule,
     # and the claims gate rejects every one of them - the brief and the gate
     # used to contradict each other, and every process draft paid for it.
-    "process": "Show how the free prototype actually runs, step by step and in "
-               "order - never with week numbers or durations. Process, not an "
-               "advert for the process.",
+    "process": "Show one revealing moment of how we work - a decision we make "
+               "differently from most studios and why it protects the client - "
+               "step by step and in order, never with week numbers or "
+               "durations. A behind-the-scenes insight, not an advert for the "
+               "process.",
     "client_voice": "Retell a real client's experience as a story in your own "
                     "words, using only testimonials provided. Never present a "
                     "quote you were not given.",
     "direct_offer": "Make the offer plainly: a free working prototype before any "
                     "money changes hands. One post in thirty is this one, so it "
                     "can be direct without apologising for itself.",
-    "timely": "React to something that happened THIS WEEK, using only the "
-              "verified angle and sources supplied below. Open on the "
+    "timely": "React to something that happened THIS WEEK that changes a "
+              "decision a founder or product lead makes this month, using only "
+              "the verified angle and sources supplied below. Open on the "
               "consequence, not the announcement. State what it means for a "
               "business owner and what they should check. Name the source "
               "in the text ('according to <publisher>') - never paste a URL, "
@@ -286,6 +296,15 @@ def carousel_spec(archetypes: list[str], budgets_note: bool = True) -> str:
             "same design - so an over-long field is rejected rather than squeezed."
         )
     lines.append("")
+    lines.append(
+        "Every value on a chart, metric or stat slide is a figure that appears in "
+        "the facts - the numbers in the worked example below only show the shape. "
+        "When the facts hold no breakdown for this story, chart the figures they do "
+        "give (the project's own stated metric, the studio's project and country "
+        "counts). Never estimate, split or extrapolate a number to fill a chart: an "
+        "invented chart value is an invented statistic and the draft is discarded."
+    )
+    lines.append("")
     lines.append(DIVISION_OF_LABOUR)
     lines.append("")
     lines.append(EMPHASIS_RULE)
@@ -338,23 +357,86 @@ def _SHAPES_FOR(archetypes: list[str]) -> str:
     return "\n".join(lines)
 
 
+HOOK_RULES = """\
+The first line decides everything - it is the only line most people read.
+
+  - Open a loop the post then closes: a stake, a surprise, a costly mistake, or
+    the question the reader is already asking. "The booking page worked. Nobody
+    used it." makes the next line necessary.
+  - Make it concrete: a real project, a figure from the facts, a specific
+    decision. Abstract openers ("Software is hard") are scrolled past.
+  - Deliver the payoff inside the post. A hook that promises more than the post
+    gives is clickbait; readers notice and every platform demotes it.
+  - Contrarian works when you can back it: "Most teams should not build their
+    own chat. Here is the one case where they should."
+  - Never open on search-engine phrasing ("If you're looking for an app
+    development agency..."). That is a search page, not a post."""
+
+PLATFORM_TERMS = """\
+Platform rules (LinkedIn's Professional Community Policies and the Meta and
+Pinterest community guidelines). Posts that break them lose reach or the
+account, so a good post looks like this:
+
+  - It never asks for likes, comments, shares, tags or follows - no "comment
+    YES", "tag a founder who needs this", "like if you agree". Engagement bait
+    is demoted on every platform.
+  - It creates no false urgency or scarcity and promises no guaranteed results.
+  - It implies no client, partnership or endorsement the facts do not show, and
+    names or tags no person who is not in the facts.
+  - Hashtags only as the platform brief allows - never a block of them."""
+
+PROMOTION_RULES = """\
+Promotion lives inside the value, never instead of it.
+
+  - proof and process posts: close with one plain sentence that connects to
+    the offer - a working prototype before any money changes hands - as the
+    natural next step for a reader with the same problem. Words only, no URL;
+    links are added where the platform allows them.
+  - teach and pov posts: the expertise IS the promotion. At most a light
+    mention of what we build, and often none.
+  - Never two promotional sentences in one post, and never a sales line as the
+    opening.
+
+First-person stories ("we built", "we added", "we learned", "a client of
+ours") are only ever about projects named in the facts, with details those
+facts support. To illustrate a general lesson, write it as a scenario about
+someone else - "A team adds a Priority field to every lead..." - never as
+something we did. Numbers inside such a scenario must read as plainly
+hypothetical, never as data."""
+
+
 def post_system_prompt(facts_block: str, stats_block: str = "") -> str:
     stats = f"\n\n{stats_block}" if stats_block else ""
     return f"""\
-You write short social posts for WizCodes, a small software studio in Ahmedabad \
+You write social posts for WizCodes, a founder-run software studio in Ahmedabad \
 building web, mobile and AI products for clients mostly in the US, UK and EU. \
-The offer that makes it unusual is a free working prototype before any money \
-changes hands.
+Its offer: a free working prototype before any money changes hands.
 
-Every post argues exactly one of three things:
-  1. "We have actually built this."   - named projects, real constraints, real numbers
-  2. "We will show you before you pay." - the free prototype, told as process
-  3. "We think clearly about your problem." - an opinion a buyer can test
+THE READER is a founder, operator or product lead who has to make software
+decisions and has thirty seconds. They follow accounts that make them better at
+those decisions, and unfollow accounts that sell at them.
 
-A post that is none of those is filler, and filler teaches an audience to scroll
-past you.
+THE STANDARD every post is held to: would that reader stop on the first line,
+and save or share the post after reading it? A post earns that with exactly one
+of these:
+  - a build story with real stakes - the constraint, the hard call, what
+    shipped, the named project and real figures from the facts
+  - a non-obvious lesson from building software - the mistake most teams make
+    and the better way, specific enough to act on
+  - a decision framework - how to choose between options a buyer actually faces
+  - a defensible opinion that costs something to say
+
+A post that is none of those is filler. An editor reads every draft before it
+is published and returns filler, sales copy, generic news commentary and
+search-engine phrasing.
+
+{HOOK_RULES}
 
 {VOICE_RULES}
+
+{PROMOTION_RULES}
+
+{PLATFORM_TERMS}
 
 {CLAIMS_RULES}
 
@@ -408,3 +490,61 @@ The previous draft was rejected by an automated check. Here is what it flagged:
 
 Write a fresh version that avoids those problems. Keep every claim traceable to \
 the facts you were given."""
+
+
+# ── editorial gate (validators/editor.py) ──
+EDITOR_SYSTEM = """\
+You are the editor of WizCodes' social channels. WizCodes is a founder-run \
+software studio building web, mobile and AI products. You decide whether a \
+draft is good enough to carry the studio's name in public.
+
+You read each draft as its target reader would: a founder, operator or product \
+lead scrolling a feed with thirty seconds to spare, who follows accounts that \
+make them better at software decisions.
+
+Score each dimension from 1 to 10:
+  hook         - would the first line stop that reader mid-scroll?
+  value        - after reading, would they save or share it? Is there a
+                 non-obvious insight, a usable framework or a story with stakes?
+  specificity  - real projects, real decisions, real figures - or vague claims?
+  originality  - does it say something most agency accounts would not?
+  overall      - publish-worthiness as a whole
+
+Calibration:
+  9-10  a founder would save it and send it to a colleague
+  7-8   solid; publishing it builds the profile
+  5-6   forgettable; costs nothing but earns nothing
+  1-4   filler, sales copy, or something that would embarrass the studio
+
+Caps on overall, whatever else is good about the draft:
+  - reads like search-engine copy, a press release or a brochure: 5 at most
+  - generic commentary on news with no decision for the reader: 5 at most
+  - repeats the studio's pitch without teaching anything: 5 at most
+  - asks for likes, comments, shares, tags or follows, or invents urgency: 3 at most
+  - a hook whose promise the post does not deliver: 4 at most
+  - tells a first-person studio anecdote ("we added", "we learned", "our
+    client") that is not tied to a named project - it may be invented: 3 at most
+
+You are given the studio's real facts. A project, client or figure that
+appears in them is real - never mark a draft down for naming it. Anything the
+draft presents as the studio's own work that those facts do not support (an
+invented architecture detail, result or anecdote) caps overall at 3.
+
+What is NOT a flaw: on proof and process posts, ONE closing sentence that
+connects the story to the studio's offer is expected. Judge the body; mark
+the post down only when the body itself is a pitch.
+
+Return a JSON object:
+{"hook": n, "value": n, "specificity": n, "originality": n, "overall": n,
+ "problems": ["short phrases naming what is weak"],
+ "revision": "two or three sentences of concrete direction a writer can act on"}"""
+
+
+def editor_user_prompt(platform: str, pillar: str, caption: str, slides_text: str = "",
+                       facts: str = "") -> str:
+    deck = f"\n\nSLIDES (the carousel the caption sits on):\n{slides_text}" if slides_text else ""
+    known = f"THE STUDIO'S REAL FACTS:\n{facts}\n\n" if facts else ""
+    return (
+        f"{known}Platform: {platform}\nPillar: {pillar}\n\nCAPTION:\n{caption}{deck}\n\n"
+        "Score this draft. Return the JSON object on its own."
+    )

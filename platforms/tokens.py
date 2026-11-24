@@ -165,6 +165,56 @@ def refresh_pinterest(config) -> dict:
         return _fail("PINTEREST_TOKEN", repr(e), config)
 
 
+def refresh_linkedin(config) -> dict:
+    """LinkedIn: 60-day access token from a 365-day refresh token.
+
+    Added 24 Nov 2026 when the Community Management API was connected. Without
+    it the page token dies on day 60 and posting stops with no error raised.
+    LinkedIn does not extend the refresh token itself, so on day ~365 a manual
+    `python tools/linkedin_auth.py` is still needed - its expiry is stored so
+    the digest warns ahead of it.
+    """
+    refresh_token = (
+        credentials.get("LINKEDIN_REFRESH_TOKEN", config.database_url)
+        or config.linkedin_refresh_token
+    )
+    if not (refresh_token and config.linkedin_client_id and config.linkedin_client_secret):
+        return {
+            "name": "LINKEDIN_ACCESS_TOKEN", "ok": False,
+            "error": "no refresh token; run tools/linkedin_auth.py once",
+        }
+    try:
+        resp = requests.post(
+            "https://www.linkedin.com/oauth/v2/accessToken",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": config.linkedin_client_id,
+                "client_secret": config.linkedin_client_secret,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return _fail("LINKEDIN_ACCESS_TOKEN", f"HTTP {resp.status_code} {resp.text[:150]}", config)
+        payload = resp.json()
+        result = _ok(
+            "LINKEDIN_ACCESS_TOKEN", payload.get("access_token", ""),
+            int(payload.get("expires_in") or 0), config, "60d access token",
+        )
+        if payload.get("refresh_token"):
+            credentials.put(
+                "LINKEDIN_REFRESH_TOKEN", payload["refresh_token"], AGENT,
+                datetime.now(UTC)
+                + timedelta(seconds=int(payload.get("refresh_token_expires_in") or 0) or 31536000),
+                config.database_url, "365d; re-run tools/linkedin_auth.py before it lapses",
+            )
+            result["refresh_token_rotated"] = True
+        return result
+    except Exception as e:
+        return _fail("LINKEDIN_ACCESS_TOKEN", repr(e), config)
+
+
 def check_meta(config) -> dict:
     """Meta Page token: never expires, but can be revoked without warning.
 
@@ -222,6 +272,8 @@ def refresh_all(config) -> dict:
         results.append(refresh_threads(config))
     if config.pinterest_refresh_token or config.token("PINTEREST_REFRESH_TOKEN"):
         results.append(refresh_pinterest(config))
+    if config.linkedin_refresh_token or config.token("LINKEDIN_REFRESH_TOKEN"):
+        results.append(refresh_linkedin(config))
     if config.meta_page_token:
         results.append(check_meta(config))
 

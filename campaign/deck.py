@@ -54,6 +54,18 @@ class DeckPlan:
         return f"{self.recipe} [{shape}] {self.region.code}{kw}"
 
 
+
+def _wants_phrase(config, platform: str) -> bool:
+    """A search phrase only where the platform is a search engine.
+
+    See `Config.seo_phrase_platforms`: in a social feed the phrase turned
+    openers into search-page copy.
+    """
+    if not config.seo_phrases:
+        return False
+    allowed = getattr(config, "seo_phrase_platforms", None)
+    return platform in allowed if allowed is not None else True
+
 def plan(
     config,
     *,
@@ -96,7 +108,7 @@ def plan(
         return DeckPlan(
             phrase=keywords.pick(effective_pillar, platform=platform,
                                  region=region.code, today=today)
-            if config.seo_phrases else None,
+            if _wants_phrase(config, platform) else None,
             platform=platform, pillar=effective_pillar, recipe=shape.name,
             archetypes=archetypes, layouts=["centred"] * len(archetypes),
             themes=recipes.apply_themes(archetypes, "light"),
@@ -130,7 +142,7 @@ def plan(
     phrase = keywords.pick(
         effective_pillar, platform=platform, region=region.code, today=today,
         used=[r.get("phrase") for r in (history or []) if r.get("phrase")],
-    ) if config.seo_phrases else None
+    ) if _wants_phrase(config, platform) else None
 
     return DeckPlan(
         phrase=phrase,

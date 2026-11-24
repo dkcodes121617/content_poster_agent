@@ -29,7 +29,7 @@ from config import AGENT_NAME
 from imaging import r2, render
 from platforms import Draft, PublishResult, get_platform
 from prompts.library import REGENERATE_NOTE, post_system_prompt, post_user_prompt
-from validators import repetition, validate
+from validators import editor, repetition, validate
 
 log = logging.getLogger("content_poster.graph")
 
@@ -336,6 +336,21 @@ def make_write(config, budget, reader: SiteReader):
                     pillar=deck.pillar,
                 )
                 if verdict.ok:
+                    # Allowed is not the same as worth reading. The editor reads
+                    # it as the target reader would; a weak draft goes back with
+                    # direction, and a slot whose last attempt is still weak is
+                    # skipped rather than filled. See validators/editor.py.
+                    review = editor.review(
+                        client, config, platform=slot.platform, pillar=deck.pillar,
+                        caption=caption, slides_text=slides_text, facts=facts,
+                    )
+                    log.info("draft %s/%s attempt %d: %s",
+                             slot.platform, deck.pillar, attempt, review.summary())
+                    if not review.ok:
+                        reasons = review.reasons()
+                        note = REGENERATE_NOTE.format(
+                            reasons="\n".join(f"- {r}" for r in reasons))
+                        continue
                     accepted = Draft(
                         platform=slot.platform,
                         pillar=deck.pillar,
@@ -355,6 +370,7 @@ def make_write(config, budget, reader: SiteReader):
                             "region": deck.region.code,
                             **({"phrase": deck.phrase.text} if deck.phrase else {}),
                             "phase": deck.phase_name,
+                            **({"editor": review.scores} if review.scores else {}),
                             **({"angle_id": angle_row["id"]} if angle_row else {}),
                         },
                     )

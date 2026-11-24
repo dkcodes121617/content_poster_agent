@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 # two copies drifting would mean one agent permitting what the other rejects.
 from wizcore.facts import grounding
 
-from validators import claims, platform, repetition, seo, voice
+from validators import anecdote, claims, platform, repetition, seo, voice
 from validators import slides as slide_gate
 
 # Pinterest is a SEARCH INDEX, not a feed. Several pins covering one subject
@@ -117,6 +117,7 @@ def validate(
     for name, reasons in (
         ("grounding", grounding.check(full_text, snapshot, sources)),
         ("claims", claims.check(full_text)),
+        ("anecdote", anecdote.check(full_text, snapshot)),
         ("voice", voice.check(caption)),
         ("repetition", repetition.check(caption, history, threshold)),
         ("platform", platform.check(platform_name, caption, hashtags, image_count)),
@@ -131,6 +132,6 @@ def validate(
 
 
 __all__ = [
-    "Verdict", "claims", "grounding", "platform", "repetition",
+    "Verdict", "anecdote", "claims", "grounding", "platform", "repetition",
     "seo", "slide_gate", "validate", "voice",
 ]

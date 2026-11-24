@@ -381,22 +381,26 @@ def ready_count(config) -> int:
 
 
 def insert_available(config, platform: str) -> bool:
-    """Has the one off-calendar insert for this platform today been spent?
+    """Is there an off-calendar insert left for this platform this week?
 
-    A table rather than an in-memory counter: the cap is per DAY and the agent
-    runs hourly, so a run has no idea what earlier runs did.
+    A table rather than an in-memory counter: the agent runs hourly, so a run
+    has no idea what earlier runs did. The cap was one per DAY until 24 Nov,
+    which let news reactions become nearly half of everything posted.
     """
     from wizcore.db.conn import connect, fetch_one
 
+    cap = max(0, int(getattr(config, "timely_max_per_week", 1)))
+    if cap == 0:
+        return False
     try:
         with connect(config.database_url, autocommit=True) as conn:
             row = fetch_one(
                 conn,
-                "SELECT 1 AS taken FROM content.trend_inserts "
-                "WHERE day = current_date AND platform = %s",
+                "SELECT count(*) AS n FROM content.trend_inserts "
+                "WHERE day > current_date - 7 AND platform = %s",
                 (platform,),
             )
-        return row is None
+        return int((row or {}).get("n") or 0) < cap
     except Exception:
         # Unknown means "do not insert". Silence is the safe failure for a
         # feature whose whole risk is posting too often.
