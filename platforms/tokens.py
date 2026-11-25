@@ -44,6 +44,30 @@ log = logging.getLogger("content_poster.tokens")
 AGENT = "content_poster"
 
 
+def _mirror_expiry(name: str, expires_at, ok: bool, config, note: str = "") -> None:
+    """Keep `core.credential_expiry` - what the agent console reads - current.
+
+    Nothing wrote to it after August, so by November the console showed three
+    long-rotated tokens as "expiring within 10 days" while every real token was
+    healthy. Never raises: a dashboard row must not fail a rotation.
+    """
+    try:
+        from wizcore.db.conn import connect
+
+        with connect(config.database_url, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO core.credential_expiry "
+                "(name, agent, expires_at, last_checked, last_ok, notes) "
+                "VALUES (%s, %s, %s, now(), %s, NULLIF(%s, '')) "
+                "ON CONFLICT (name) DO UPDATE SET expires_at = EXCLUDED.expires_at, "
+                "  last_checked = now(), last_ok = EXCLUDED.last_ok, "
+                "  notes = COALESCE(EXCLUDED.notes, core.credential_expiry.notes)",
+                (name, AGENT, expires_at, ok, note),
+            )
+    except Exception:
+        log.warning("could not mirror %s into credential_expiry", name, exc_info=True)
+
+
 def _ok(name: str, value: str, expires_in: int, config, note: str = "") -> dict:
     expires_at = (
         datetime.now(UTC) + timedelta(seconds=expires_in) if expires_in else None
@@ -51,6 +75,7 @@ def _ok(name: str, value: str, expires_in: int, config, note: str = "") -> dict:
     stored = credentials.put(
         name, value, AGENT, expires_at, config.database_url, note
     )
+    _mirror_expiry(name, expires_at, True, config, note)
     return {
         "name": name, "ok": True, "stored": stored,
         "expires_in_days": expires_in // 86400 if expires_in else None,
@@ -59,6 +84,16 @@ def _ok(name: str, value: str, expires_in: int, config, note: str = "") -> dict:
 
 def _fail(name: str, error: str, config) -> dict:
     credentials.record_failure(name, error, AGENT, config.database_url)
+    try:
+        from wizcore.db.conn import connect
+
+        with connect(config.database_url, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE core.credential_expiry SET last_ok = false, last_checked = now() "
+                "WHERE name = %s", (name,),
+            )
+    except Exception:
+        log.warning("could not flag %s in credential_expiry", name, exc_info=True)
     log.warning("rotation failed for %s: %s", name, error[:200])
     return {"name": name, "ok": False, "error": error[:200]}
 
@@ -236,6 +271,10 @@ def check_meta(config) -> dict:
         if not data.get("is_valid"):
             return _fail(name, "debug_token says the token is not valid", config)
         expires = int(data.get("expires_at") or 0)
+        _mirror_expiry(
+            name, datetime.fromtimestamp(expires, tz=UTC) if expires else None, True, config,
+            "Page token; debug_token expires_at=0 means it never expires",
+        )
         return {
             "name": name, "ok": True, "stored": False,
             "expires_in_days": None if not expires else
