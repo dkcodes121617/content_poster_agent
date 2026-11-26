@@ -109,6 +109,9 @@ class Platform(ABC):
     # Platforms whose publish API fetches the image by URL rather than accepting
     # an upload. These cannot run without R2.
     needs_hosted_images: bool = False
+    # Platforms that upload rendered images as bytes. The render node renders
+    # for them but hosts nothing; the files arrive in draft.raw["local_images"].
+    needs_images: bool = False
 
     def __init__(self, config):
         self.config = config
@@ -121,6 +124,10 @@ class Platform(ABC):
     def _post(self, url: str, **kw) -> requests.Response:
         kw.setdefault("timeout", self.config.http_timeout)
         return requests.post(url, **kw)
+
+    def _put(self, url: str, **kw) -> requests.Response:
+        kw.setdefault("timeout", self.config.http_timeout)
+        return requests.put(url, **kw)
 
     def _get(self, url: str, **kw) -> requests.Response:
         kw.setdefault("timeout", self.config.http_timeout)

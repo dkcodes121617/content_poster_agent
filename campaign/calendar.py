@@ -94,36 +94,38 @@ class Slot:
 # for a new page is close to nothing, and it is in the plan as presence and as
 # the place a Google search for the brand name lands, not as a growth channel.
 #
-# The three LinkedIn slots stay defined and simply do not fire until
-# PLATFORMS_ENABLED includes it — which is the whole point of writing them down
-# now. When it lands the week goes from 22 slots to 25 with no code change.
+# LinkedIn is the B2B channel, so it posts every weekday (5/week) and every
+# post carries visuals: carousels Mon-Wed, a single image Thu-Fri. That stays
+# inside campaign/capacity.py's LinkedIn launch rate of 1/day.
 WEEK: list[Slot] = [
     # Monday
     Slot(0, 13, 30, "instagram", "proof", "carousel", 6),      # UK
     Slot(0, 15, 0, "pinterest", "proof", "pin"),               # UK/EU
+    Slot(0, 18, 30, "linkedin", "process", "carousel", 6),     # US
     Slot(0, 21, 0, "threads", "pov", "text"),                  # US
     # Tuesday
     Slot(1, 12, 30, "pinterest", "teach", "pin"),              # EU
     Slot(1, 14, 0, "threads", "proof", "text"),                # UK
-    Slot(1, 18, 30, "linkedin", "teach", "text"),              # US
+    Slot(1, 18, 30, "linkedin", "teach", "carousel", 6),       # US
     Slot(1, 19, 0, "x", "teach", "thread"),                    # US
     Slot(1, 20, 0, "facebook", "process", "single"),           # US
     # Wednesday
     Slot(2, 12, 30, "instagram", "process", "carousel", 6),    # EU
     Slot(2, 16, 0, "threads", "teach", "text"),                # UK
-    # Text, not a carousel: platforms/linkedin.py posts commentary only, so a
-    # caption written to tease slides would have gone out with no slides.
-    Slot(2, 18, 30, "linkedin", "proof", "text"),              # US
+    # LinkedIn posts carry their visuals: several slides go out as a PDF
+    # document (the native swipeable carousel), one slide as an image.
+    Slot(2, 18, 30, "linkedin", "proof", "carousel", 6),       # US
     Slot(2, 21, 0, "threads", "process", "text"),              # US
     # Thursday
     Slot(3, 15, 0, "pinterest", "teach", "pin"),               # UK/EU
-    Slot(3, 18, 30, "linkedin", "pov", "text"),                # US
+    Slot(3, 18, 30, "linkedin", "pov", "single"),              # US
     Slot(3, 19, 0, "x", "proof", "thread"),                    # US
     Slot(3, 20, 0, "facebook", "client_voice", "single"),      # US
     Slot(3, 21, 0, "threads", "pov", "text"),                  # US
     # Friday
     Slot(4, 13, 0, "instagram", "teach", "carousel", 5),       # UK/EU
     Slot(4, 15, 0, "pinterest", "proof", "pin"),               # UK/EU
+    Slot(4, 18, 30, "linkedin", "proof", "single"),            # US
     Slot(4, 19, 0, "x", "pov", "thread"),                      # US
     Slot(4, 20, 0, "facebook", "proof", "single"),             # US
     Slot(4, 21, 0, "threads", "teach", "text"),                # US

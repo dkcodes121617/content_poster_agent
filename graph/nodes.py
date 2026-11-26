@@ -428,7 +428,7 @@ def make_render(config):
 
         for draft in drafts:
             platform = get_platform(draft.platform, config)
-            if not platform.needs_hosted_images:
+            if not (platform.needs_hosted_images or platform.needs_images):
                 out.append(draft)
                 continue
             slides = draft.slides or [_fallback_slide(draft)]
@@ -437,11 +437,14 @@ def make_render(config):
                     paths = render.render_slides(
                         slides, draft.platform, f"{draft.platform}_{draft.pillar}"
                     )
-                if config.dry_run:
-                    # Render for real, host nothing. The images exist on disk to
-                    # be looked at, which is the point of a dry run.
+                # Kept on every path: platforms that upload bytes (LinkedIn) read
+                # the rendered files directly instead of a hosted URL.
+                draft.raw["local_images"] = [str(p) for p in paths]
+                if config.dry_run or not platform.needs_hosted_images:
+                    # Render for real, host nothing. In a dry run the images
+                    # exist on disk to be looked at; for an upload platform the
+                    # publisher sends the files itself.
                     draft.image_urls = [f"file://{p}" for p in paths]
-                    draft.raw["local_images"] = [str(p) for p in paths]
                 else:
                     urls = r2.upload(config, paths, run_id)
                     if urls and not r2.verify_public(urls[0]):

@@ -194,7 +194,10 @@ PLATFORM_BRIEFS = {
                  "so do not put them in the caption.",
     "linkedin": "120-200 words for founders and operations leads. Exactly three "
                 "hashtags at the end. No external link in the body - LinkedIn "
-                "suppresses those, so the link goes in the first comment.",
+                "suppresses those, so the link goes in the first comment. The "
+                "post goes out with its slides attached (a swipeable document "
+                "for a carousel, one image otherwise): the caption sets up why "
+                "the slides matter and does not repeat them line by line.",
     # The character budget goes FIRST and is stated below the real ceiling.
     # Measured: given "under 500", three consecutive drafts came back at 1148,
     # 619 and 699 characters and were all rejected. A model told the exact limit
