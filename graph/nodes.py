@@ -28,7 +28,13 @@ from campaign.calendar import boost_active, due_slots, ist_now
 from config import AGENT_NAME
 from imaging import r2, render
 from platforms import Draft, PublishResult, get_platform
-from prompts.library import REGENERATE_NOTE, post_system_prompt, post_user_prompt
+from prompts.library import (
+    FIX_NOTE,
+    REGENERATE_NOTE,
+    REVISE_NOTE,
+    post_system_prompt,
+    post_user_prompt,
+)
 from validators import editor, repetition, validate
 
 log = logging.getLogger("content_poster.graph")
@@ -283,6 +289,7 @@ def make_write(config, budget, reader: SiteReader):
                                 keywords.brief(deck.phrase, slot.platform)
                                 if deck.phrase else ""
                             ),
+                            avoid_openers=_recent_openers(history),
                         ),
                         max_tokens=2000,
                         temperature=0.85,   # copy, not classification
@@ -348,8 +355,14 @@ def make_write(config, budget, reader: SiteReader):
                              slot.platform, deck.pillar, attempt, review.summary())
                     if not review.ok:
                         reasons = review.reasons()
-                        note = REGENERATE_NOTE.format(
-                            reasons="\n".join(f"- {r}" for r in reasons))
+                        note = REVISE_NOTE.format(
+                            overall=review.overall,
+                            bar=int(getattr(config, "editor_min_score", 7)),
+                            reasons="\n".join(f"- {r}" for r in reasons),
+                            draft=_draft_json(parsed),
+                            **{k: review.scores.get(k, "?") for k in
+                               ("hook", "value", "specificity", "originality")},
+                        )
                         continue
                     accepted = Draft(
                         platform=slot.platform,
@@ -381,7 +394,12 @@ def make_write(config, budget, reader: SiteReader):
                     "draft rejected (%s/%s attempt %d): %s",
                     slot.platform, deck.pillar, attempt, verdict.summary(),
                 )
-                note = REGENERATE_NOTE.format(reasons="\n".join(f"- {r}" for r in reasons))
+                # Fix the flagged sentences in place rather than starting over:
+                # see FIX_NOTE.
+                note = FIX_NOTE.format(
+                    reasons="\n".join(f"- {r}" for r in reasons),
+                    draft=_draft_json(parsed),
+                )
 
             if accepted:
                 drafts.append(accepted)
@@ -405,6 +423,29 @@ def make_write(config, budget, reader: SiteReader):
         return {"drafts": drafts, "rejected": rejected, "counters": counters}
 
     return write
+
+
+def _draft_json(parsed: dict) -> str:
+    """The previous draft as the writer returned it, minus its working notes."""
+    keep = {k: v for k, v in parsed.items() if k not in ("angle", "hooks")}
+    return json.dumps(keep, ensure_ascii=False, indent=1)[:6000]
+
+
+def _recent_openers(history: list[str], limit: int = 12) -> list[str]:
+    """Distinct openers of the most recent posts.
+
+    `history` is newest-first from the database, with this run's accepted
+    drafts appended at the end, so those are read first. Told up front, the
+    first draft avoids them instead of the repetition gate rejecting it.
+    """
+    out: list[str] = []
+    for text in [*reversed(history[-3:]), *history]:
+        o = repetition.opener(text)
+        if o and o not in out:
+            out.append(o)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _slide_text(slide: dict) -> str:

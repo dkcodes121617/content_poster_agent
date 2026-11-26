@@ -341,7 +341,8 @@ def _SHAPES_FOR(archetypes: list[str]) -> str:
         "cta_split": '{"role":"cta_split","title":"See it before you *pay for it*.","pill":"wizcodes.site/get-started","note":"No retainer."}',
     }
     lines = ["Return a JSON object shaped exactly like this:",
-             '{"caption": "...", "hashtags": ["..."], "slides": [']
+             ('{"angle": "...", "hooks": ["...", "...", "..."], '
+              '"caption": "...", "hashtags": ["..."], "slides": [')]
     for name in archetypes:
         a = visual.resolve(name)
         key = a.name if a else name
@@ -374,6 +375,31 @@ The first line decides everything - it is the only line most people read.
     own chat. Here is the one case where they should."
   - Never open on search-engine phrasing ("If you're looking for an app
     development agency..."). That is a search page, not a post."""
+
+# How a senior content marketer works a post, as a method rather than rules.
+# The "angle" and "hooks" keys make the model do the two steps that separate a
+# strong post from a competent one BEFORE it writes the caption: decide the one
+# insight, and pick the best of several first lines instead of the first idea.
+# Only "caption" is published; the other two keys are working notes.
+CRAFT_RULES = """\
+How the post gets written - the method a senior content marketer uses:
+
+  1. "angle": decide the single insight first, in one sentence - the thing
+     the reader will repeat to a colleague. If you cannot say it in one
+     sentence, the post is not ready. Pick the angle from the facts: a named
+     project, a real decision, a blog post's sharpest point.
+  2. "hooks": write three genuinely different first lines for that angle -
+     for example a stake, a reversal of what most people believe, and a
+     concrete scene. The caption opens with the strongest of the three.
+  3. Build the body in this order: the tension (what goes wrong, for whom),
+     the insight (what most people miss), one concrete example from the
+     facts, then the takeaway the reader can act on. Short paragraphs, one
+     idea each, with a line break between them so it scans on a phone.
+  4. Write for one specific reader - a founder about to make this decision -
+     in plain words they would use themselves.
+  5. Before returning, reread it as that reader. Cut any sentence that does
+     not earn its place, and check every figure, duration and named detail
+     against the facts. A sharp shorter post beats a padded longer one."""
 
 PLATFORM_TERMS = """\
 Platform rules (LinkedIn's Professional Community Policies and the Meta and
@@ -435,6 +461,8 @@ search-engine phrasing.
 
 {HOOK_RULES}
 
+{CRAFT_RULES}
+
 {VOICE_RULES}
 
 {PROMOTION_RULES}
@@ -458,6 +486,7 @@ def post_user_prompt(
     archetypes: list[str] | None = None,
     region_brief: str = "",
     phrase_brief: str = "",
+    avoid_openers: list[str] | None = None,
 ) -> str:
     lines = [
         f"Write one {platform} post.",
@@ -469,6 +498,10 @@ def post_user_prompt(
         lines += ["", region_brief]
     if phrase_brief:
         lines += ["", phrase_brief]
+    if avoid_openers:
+        lines += ["", ("Recent posts already opened with these words, so this one "
+                       "opens differently:")]
+        lines += [f"  - {o}..." for o in avoid_openers]
     if extra:
         lines += ["", extra]
     if fmt == "carousel":
@@ -478,7 +511,8 @@ def post_user_prompt(
             "",
             "Return a JSON object shaped like:",
             (
-                '{"caption": "the post text", "hashtags": ["..."], '
+                '{"angle": "...", "hooks": ["...", "...", "..."], '
+                '"caption": "the post text", "hashtags": ["..."], '
                 '"image_prompt": "one line describing the single image, or empty"}'
             ),
         ]
@@ -493,6 +527,39 @@ The previous draft was rejected by an automated check. Here is what it flagged:
 
 Write a fresh version that avoids those problems. Keep every claim traceable to \
 the facts you were given."""
+
+# A draft that only broke a mechanical rule (an untraceable figure, a duration,
+# a recycled opener) is usually a good draft with a bad sentence. Rewriting it
+# from nothing threw the good part away and often broke something new, which
+# is why slots died on their last attempt. An editor fixes the sentence.
+FIX_NOTE = """\
+Your previous draft is below. It is close, but an automated check flagged \
+these specific problems:
+
+{reasons}
+
+PREVIOUS DRAFT:
+{draft}
+
+Return the same post with only those problems fixed: rewrite the flagged \
+sentences and keep everything else that works. Where a figure or duration \
+cannot be traced to the facts, say the same thing without the number."""
+
+# The editor's verdict on a draft that passed every rule but read as weak.
+REVISE_NOTE = """\
+Your previous draft passed every rule, but the editor scored it {overall}/10 \
+(hook {hook}, value {value}, specificity {specificity}, originality {originality}) \
+and the bar is {bar}. The editor said:
+
+{reasons}
+
+PREVIOUS DRAFT:
+{draft}
+
+Revise it the way a senior marketer works with an editor's notes. Keep what \
+already works, fix the weakest dimension first - usually that means a \
+sharper angle or a stronger first line drawn from the facts - and do not \
+add any figure, duration or detail the facts do not contain."""
 
 
 # ── editorial gate (validators/editor.py) ──
